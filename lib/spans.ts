@@ -22,20 +22,33 @@ const WORD = /[\p{L}\p{N}]/u;
  * the middle of "ging" in bold.
  */
 function occurrence(text: string, needle: string, nth: number): number {
-  // A fragment that begins or ends on punctuation carries its own boundary.
+  const at = places(text, needle)[nth];
+  return at === undefined ? -1 : at;
+}
+
+/**
+ * Elke plek waar `needle` als eigen woord staat, op volgorde.
+ *
+ * Zowel het verven als het terugleggen van een markering telt hierlangs, en dat
+ * moet dezelfde telling zijn. Telde de een alle tekens en de ander alleen hele
+ * woorden, dan wijst hetzelfde `nth`-getal bij de twee naar iets anders - en dan
+ * verdwijnt een cursieve "t" in "d's en t's" zonder dat iemand ziet waarom.
+ */
+export function places(text: string, needle: string): number[] {
+  if (!needle) return [];
   const opensOnWord = WORD.test(needle[0] ?? '');
   const closesOnWord = WORD.test(needle[needle.length - 1] ?? '');
-  let seen = 0;
+  const out: number[] = [];
 
   for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + 1)) {
     const end = at + needle.length;
     if (opensOnWord && at > 0 && WORD.test(text[at - 1])) continue;
     if (closesOnWord && end < text.length && WORD.test(text[end])) continue;
-    if (seen === nth) return at;
-    seen++;
+    out.push(at);
   }
-  return -1;
+  return out;
 }
+
 
 /**
  * Run 2 reports styled fragments; the preview and the MDX writer both have to

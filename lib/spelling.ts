@@ -114,3 +114,31 @@ function matchCase(had: string, better: string): string {
     .map((ch, i) => (original[i] === original[i].toUpperCase() && original[i] !== original[i].toLowerCase() ? ch.toUpperCase() : ch.toLowerCase()))
     .join('');
 }
+
+/**
+ * Losse letters die geen woord zijn.
+ *
+ * De woordindex komt uit de OCR, dus wat de OCR verkeerd leest wordt daarmee tot
+ * waarheid verklaard - er is geen tweede bron die "dit woord bestaat niet" kan
+ * zeggen. Voor één soort schade is dat wel te zien zonder woordenboek: een losse
+ * letter midden in een zin. Een kop las "Mama, weet j mama" waar "je" stond, en
+ * die achtergebleven "j" is geen Nederlands woord.
+ *
+ * Dit corrigeert niets. Wat er had moeten staan valt niet af te leiden, alleen
+ * dát er iets mist - en juist bij koppen, die in displayletter over illustraties
+ * staan, is dat het waard om te melden.
+ */
+const LOSSE_LETTER = /(?<![\p{L}\p{N}'’.-])(\p{Ll})(?![\p{L}\p{N}'’.-])/gu;
+/** De enige Nederlandse woorden van één letter, plus de losse a van "a 4". */
+const ECHT = new Set(['u', 'a']);
+
+export function strayLetters(text: string): string[] {
+  const out: string[] = [];
+  for (const match of text.matchAll(LOSSE_LETTER)) {
+    const letter = match[1];
+    if (ECHT.has(letter)) continue;
+    const at = match.index ?? 0;
+    out.push(text.slice(Math.max(0, at - 24), at + 25).replace(/\s+/g, ' ').trim());
+  }
+  return out;
+}

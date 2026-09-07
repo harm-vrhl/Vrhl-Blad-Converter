@@ -162,6 +162,12 @@ export interface Continuity {
 
 export interface PageResult {
   page: number;
+  /**
+   * Waar de opmaak van deze pagina vandaan kwam. Een pagina zonder tekstlaag is
+   * niet fout, maar hij is wel anders tot stand gekomen - en dat is precies wat
+   * je wilt weten als er iets niet klopt aan zijn vet en cursief.
+   */
+  typography?: TypographySource;
   blocks: Block[];
   patches: Patch[];
   /** Indices into `patches` the applier refused. */

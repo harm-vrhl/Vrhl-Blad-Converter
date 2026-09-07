@@ -70,12 +70,6 @@ a { color: inherit; }
   text-transform: uppercase;
 }
 
-.masthead .meta {
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-}
-
 .columns {
   display: grid;
   grid-template-columns: minmax(300px, 27rem) 1fr;
@@ -154,27 +148,69 @@ button.action:disabled { opacity: 0.35; cursor: default; }
 .kv dt { color: var(--faint); }
 .kv dd { margin: 0; }
 
+/* De rekening onder de stappen die hem gemaakt hebben. Het getal telt, de
+   uitsplitsing staat erachter voor wie hem wil narekenen. */
+.total { margin-top: 1.4rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
+.total dd { font-variant-numeric: tabular-nums; }
+.total .aside { color: var(--faint); font-size: 11px; }
+
 /* ── Run log ─────────────────────────────────────────────────────────────── */
 
-.log { list-style: none; margin: 0; padding: 0; font-size: 12px; }
+/* ── Waar de run is ──────────────────────────────────────────────────────── */
+/* Niet wat hij allemaal gedaan heeft, maar waar hij nu staat: één regel per ding
+   waar iemand op wacht, met een stip die zijn toestand draagt. */
 
-.log li {
+.steps { list-style: none; margin: 0; padding: 0; font-size: 12px; }
+
+.steps li {
   display: grid;
-  grid-template-columns: 1.25rem 1fr auto;
-  gap: 0.6rem;
-  padding: 0.3rem 0;
-  border-bottom: 1px solid var(--rule);
+  grid-template-columns: 0.9rem auto minmax(0, 1fr);
+  gap: 0.7rem;
+  padding: 0.42rem 0;
   align-items: baseline;
+  color: var(--faint);
 }
 
-.log .mark { color: var(--faint); }
-.log li[data-state='fail'] { color: var(--flag); }
-.log li[data-state='fail'] .mark { color: var(--flag); }
-.log .detail { color: var(--muted); font-size: 11px; text-align: right; }
-.log .page { color: var(--faint); }
+.steps .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--rule-strong);
+  opacity: 0.25;
+  align-self: center;
+}
+/* Het label breekt nooit; het detail wijkt en kapt af. Een stap die over twee
+   regels valt leest als twee stappen. */
+.steps .what { white-space: nowrap; }
+.steps .how {
+  color: var(--faint);
+  font-size: 11px;
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-.progress { height: 1px; background: var(--rule); margin: 1rem 0; }
-.progress span { display: block; height: 1px; background: var(--ink); }
+.steps li[data-state='bezig'] { color: var(--ink); }
+.steps li[data-state='bezig'] .dot { opacity: 1; background: var(--ink); animation: pulse 1.1s ease-in-out infinite; }
+.steps li[data-state='bezig'] .how { color: var(--muted); }
+
+.steps li[data-state='klaar'] { color: var(--muted); }
+.steps li[data-state='klaar'] .dot { opacity: 1; background: var(--rule-strong); border-color: var(--rule-strong); }
+
+.steps li[data-state='fout'] { color: var(--flag); }
+.steps li[data-state='fout'] .dot { opacity: 1; background: var(--flag); border-color: var(--flag); }
+.steps li[data-state='fout'] .how { color: var(--flag); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .steps li[data-state='bezig'] .dot { animation: none; }
+}
 
 /* ── Tabs ────────────────────────────────────────────────────────────────── */
 
@@ -441,6 +477,10 @@ button.action:disabled { opacity: 0.35; cursor: default; }
 .checks .name { color: var(--faint); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
 .checks .score { font-variant-numeric: tabular-nums; }
 .checks .note { color: var(--muted); font-size: 12px; }
+/* Waar de opmaak vandaan kwam. Uit de PDF is stil; van het beeld gelezen valt op,
+   want dat is de pagina waar je naar kijkt als het vet niet klopt. */
+.checks .bron { display: block; font-style: normal; font-size: 11px; margin-top: 0.15rem; color: var(--flag); }
+.checks .bron[data-read='true'] { color: var(--faint); }
 .checks li[data-dropped='true'] { color: var(--faint); }
 .checks li[data-dropped='true'] .note { text-decoration: line-through; }
 /* Marks are named by their witness and measured in styles, not in percentages.
@@ -461,7 +501,8 @@ button.action:disabled { opacity: 0.35; cursor: default; }
 .warnings li { padding: 0.5rem 0; border-bottom: 1px solid var(--rule); font-size: 12px; }
 .warnings .step { color: var(--faint); letter-spacing: 0.1em; text-transform: uppercase; font-size: 10px; margin-right: 0.75rem; }
 
-pre.json {
+pre.json,
+textarea.json {
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1.5;
@@ -473,23 +514,44 @@ pre.json {
 }
 
 /* The OCR's own markdown, as it came back. */
-pre.json.ocr { color: var(--ink); max-width: 46rem; }
 
 /* Run 2's marks, laid over run 1's text while it is still arriving. */
-.pagetext strong { font-weight: 650; color: var(--ink); }
-.pagetext em { font-style: italic; color: var(--ink); }
-.pagetext u { text-decoration: underline; }
 
 /* The machinery, folded away once the article it built is on screen. */
-.raw { margin-top: 2rem; border-top: 1px solid var(--rule); }
-.raw > summary { display: flex; align-items: baseline; gap: 1rem; padding: 0.9rem 0;
-  cursor: pointer; color: var(--faint); font-size: 10px; letter-spacing: 0.14em;
-  text-transform: uppercase; list-style: none; }
-.raw > summary::-webkit-details-marker { display: none; }
-.raw > summary::before { content: '+'; font-size: 12px; line-height: 1; }
-.raw[open] > summary::before { content: '\2212'; }
-.raw > summary:hover { color: var(--muted); }
-.raw > summary .pulse { margin-left: auto; letter-spacing: 0; text-transform: none; font-size: 11px; }
+
+/* ── MDX bewerken ────────────────────────────────────────────────────────── */
+/* Dezelfde letter en maat als de weergave ernaast, zodat wat je typt eruitziet
+   zoals het straks staat. */
+
+.editor { display: flex; flex-direction: column; gap: 0.75rem; }
+.editor header { display: flex; align-items: baseline; gap: 1rem; }
+
+.editor textarea {
+  width: 100%;
+  min-height: 60vh;
+  resize: vertical;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 1rem;
+  color: var(--ink);
+  tab-size: 2;
+}
+.editor textarea:focus { outline: none; border-color: var(--rule-strong); }
+
+.link {
+  font: inherit;
+  font-size: 11px;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-left: auto;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link:hover { color: var(--ink); }
 
 .empty { color: var(--faint); font-size: 12px; max-width: 32rem; }
 .notice { border: 1px solid var(--flag); color: var(--flag); padding: 0.75rem 1rem; font-size: 12px; margin-bottom: 1.5rem; }
@@ -559,8 +621,6 @@ pre.json.ocr { color: var(--ink); max-width: 46rem; }
 
 .frontmatter { max-width: 46rem; margin: 0 0 2.5rem; }
 
-.stream { display: grid; gap: 2rem; }
-
 .pane { border-top: 1px solid var(--rule-strong); padding-top: 0.75rem; }
 
 .pane header {
@@ -591,38 +651,9 @@ pre.json.ocr { color: var(--ink); max-width: 46rem; }
   vertical-align: -1px;
 }
 
-.pagetext {
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin: 0;
-  max-width: 46rem;
-}
-
-.caret {
-  display: inline-block;
-  width: 6px;
-  height: 12px;
-  margin-left: 1px;
-  background: var(--ink);
-  vertical-align: -1px;
-}
-
-.patches { list-style: none; margin: 1rem 0 0; padding: 0; max-width: 46rem; }
-
-.patches li {
-  font-size: 11px;
-  color: var(--muted);
-  padding: 0.25rem 0;
-  border-top: 1px solid var(--rule);
-}
-
 .tabs button:disabled { opacity: 0.3; cursor: default; }
 
 /* A patch the applier refused: the same words were already claimed elsewhere. */
-.patches li[data-dropped='true'] { text-decoration: line-through; color: var(--faint); }
 
 /* ── Prompts ─────────────────────────────────────────────────────────────── */
 

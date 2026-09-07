@@ -3,13 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArticleView } from "@/components/ArticleView";
 import { Checks } from "@/components/Checks";
-import { Ocr } from "@/components/Ocr";
 import { PageThumbs } from "@/components/PageThumbs";
-import { Prompts } from "@/components/Prompts";
-import { Stream, type PageStream } from "@/components/Stream";
 import { renderPdf } from "@/lib/client/render";
 import { blankFrontmatter, compileArticle } from "@/lib/compile";
 import { toMdx } from "@/lib/mdx";
+import { fromMdx } from "@/lib/frommdx";
 import { parsePage } from "@/lib/pagemarkup";
 import { applyStyles } from "@/lib/patch";
 import { placeFragments } from "@/lib/place";
@@ -25,7 +23,31 @@ import type {
 } from "@/lib/types";
 
 type Phase = "idle" | "rendering" | "ready" | "running" | "done" | "error";
-type Tab = "stream" | "ocr" | "mdx" | "checks" | "prompts";
+type Tab = "artikel" | "mdx" | "checks";
+
+interface Step {
+  key: string;
+  label: string;
+  state: "wacht" | "bezig" | "klaar" | "fout";
+  detail: string;
+}
+
+/** What each run is called while it is still going. */
+const BUSY: Record<string, string> = {
+  "run 1 leesvolgorde": "tekst uitschrijven…",
+  "opmaak uit de PDF": "opmaak uit de PDF…",
+  "run 2 opmaak": "opmaak van het beeld lezen…",
+  pagina: "bezig…",
+};
+
+/** What the whole run came to: the receipt under the steps that spent it. */
+interface Totals {
+  runs: number;
+  tokens: number;
+  ms: number;
+  ocrPages: number;
+  cost: { ai: number; ocr: number; total: number; currency: string } | null;
+}
 
 interface StatusLine {
   run: string;
@@ -39,13 +61,19 @@ export default function Home() {
   const [job, setJob] = useState<Job | null>(null);
   const [thumbs, setThumbs] = useState<string[]>([]);
   const [status, setStatus] = useState<StatusLine[]>([]);
+  const [totals, setTotals] = useState<Totals | null>(null);
+  /**
+   * De MDX zoals iemand hem heeft bijgewerkt, of null zolang niemand iets deed.
+   * Null en "gelijk aan wat de AI schreef" zijn niet hetzelfde: alleen dat eerste
+   * betekent dat er niets te herstellen valt.
+   */
+  const [mdxEdit, setMdxEdit] = useState<string | null>(null);
   const [text, setText] = useState<Record<number, string>>({});
   const [patches, setPatches] = useState<Record<number, Patch[]>>({});
   // What run 2 read off the page. It lands while run 1 is still writing, which
   // is what lets the pane set the words as they arrive.
   const [fragments, setFragments] = useState<Record<number, StyleFragment[]>>({});
   const [results, setResults] = useState<Record<number, PageResult>>({});
-  const [running, setRunning] = useState<Record<number, string[]>>({});
   const [frontmatter, setFrontmatter] = useState<Frontmatter | null>(null);
   const [verdicts, setVerdicts] = useState<ImageVerdict[]>([]);
   // How this installation stands by default, and what the optional OCR costs.
@@ -53,7 +81,7 @@ export default function Home() {
   const [doc, setDoc] = useState<ArticleDocument | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [tab, setTab] = useState<Tab>("stream");
+  const [tab, setTab] = useState<Tab>("artikel");
   const input = useRef<HTMLInputElement>(null);
 
   const accept = useCallback(async (file: File) => {
@@ -64,16 +92,17 @@ export default function Home() {
     setPhase("rendering");
     setNotice(null);
     setStatus([]);
+    setTotals(null);
+    setMdxEdit(null);
     setText({});
     setPatches({});
     setFragments({});
     setResults({});
-    setRunning({});
     setFrontmatter(null);
     setVerdicts([]);
     setDoc(null);
     setThumbs([]);
-    setTab("stream");
+    setTab("artikel");
 
     try {
       // The page count is only known once pdf.js opens the file, so the job is
@@ -169,14 +198,15 @@ export default function Home() {
     if (!job) return;
     setPhase("running");
     setStatus([]);
+    setTotals(null);
+    setMdxEdit(null);
     setText({});
     setPatches({});
     setFragments({});
     setResults({});
-    setRunning({});
     setDoc(null);
     setNotice(null);
-    setTab("stream");
+    setTab("artikel");
 
     try {
       const res = await fetch(`/api/jobs/${job.id}/run`, { method: "POST" });
@@ -205,14 +235,6 @@ export default function Home() {
       switch (event.type) {
         case "status":
           setStatus((prev) => [...prev, event]);
-          if (event.page != null) {
-            setRunning((prev) => {
-              const open = new Set(prev[event.page as number] ?? []);
-              if (event.state === "start") open.add(event.run);
-              else open.delete(event.run);
-              return { ...prev, [event.page as number]: [...open] };
-            });
-          }
           // A page that fails is logged; only a failure without a page number
           // means the whole run is over.
           if (event.state === "fail" && event.page == null) {
@@ -249,41 +271,20 @@ export default function Home() {
         case "done":
           setDoc(event.document);
           setPhase("done");
-          // The article is already on screen, at the top of this same tab.
-          setStatus((prev) => [
-            ...prev,
-            {
-              run: "klaar",
-              state: "ok",
-              detail:
-                `${event.runs} runs · ${event.tokens} tokens · ${duration(event.ms)}` +
-                (event.ocr ? ` · OCR ${event.ocr.calls} calls, ${event.ocr.pages} pagina's` : "") +
-                (event.cost ? ` · ${receipt(event.cost)}` : ""),
-            },
-          ]);
+          // The article is already on screen, at the top of this same tab; what
+          // the run cost belongs under the steps that spent it.
+          setTotals({
+            runs: event.runs,
+            tokens: event.tokens,
+            ms: event.ms,
+            ocrPages: event.ocr?.pages ?? 0,
+            cost: event.cost ?? null,
+          });
           break;
       }
     }
   }, [job]);
 
-  const streams: PageStream[] = useMemo(() => {
-    const numbers = new Set<number>([
-      ...Object.keys(text).map(Number),
-      ...Object.keys(results).map(Number),
-      ...Object.keys(patches).map(Number),
-      ...Object.keys(fragments).map(Number),
-    ]);
-    return [...numbers]
-      .sort((a, b) => a - b)
-      .map((page) => ({
-        page,
-        text: text[page] ?? "",
-        patches: patches[page] ?? [],
-        fragments: fragments[page] ?? [],
-        result: results[page],
-        running: running[page] ?? [],
-      }));
-  }, [text, patches, fragments, results, running]);
 
   const pageResults = useMemo(
     () => Object.values(results).sort((a, b) => a.page - b.page),
@@ -309,7 +310,73 @@ export default function Home() {
   // Run 2 no longer waits for run 1, so its marks are usually in before the text
   // has finished arriving; placing them here is what lets the reader watch a
   // paragraph appear already set rather than watch it change afterwards.
+  /**
+   * The run, as a handful of steps rather than as its log.
+   *
+   * The pipeline emits a line for every start and every finish of every run on
+   * every page: for a six-page article that is forty entries of "run 1
+   * leesvolgorde · p3". Useful while building it, unreadable while using it. The
+   * same events are folded here into the few things someone actually waits for -
+   * the document-wide stages, and then one row per page - so the list says where
+   * the job IS instead of everything it has done.
+   */
+  const steps: Step[] = useMemo(() => {
+    if (!status.length && !job) return [];
+
+    const last = (run: string, page?: number) =>
+      [...status].reverse().find((l) => l.run === run && (page === undefined || l.page === page));
+
+    const stage = (key: string, label: string, run: string, detail?: string): Step => {
+      const seen = last(run);
+      if (!seen) return { key, label, state: "wacht", detail: "" };
+      return {
+        key,
+        label,
+        state: seen.state === "fail" ? "fout" : seen.state === "ok" ? "klaar" : "bezig",
+        detail: detail ?? seen.detail ?? "",
+      };
+    };
+
+    const out: Step[] = [
+      stage("ocr", "Tekst lezen", "woordindex"),
+      stage("front", "Kop en auteurs", "frontmatter"),
+      stage("beeld", "Beeld beoordelen", "beeldbeoordeling"),
+    ];
+
+    // One row per page, whatever the pipeline happens to be doing on it.
+    for (let page = 1; page <= (job?.pageCount ?? 0); page++) {
+      const done = results[page];
+      const failed = status.find((l) => l.page === page && l.state === "fail");
+      const busy = [...status].reverse().find((l) => l.page === page && l.state === "start");
+
+      out.push({
+        key: `p${page}`,
+        label: `Pagina ${page}`,
+        state: failed ? "fout" : done ? "klaar" : busy ? "bezig" : "wacht",
+        detail: failed
+          ? (failed.detail ?? "mislukt")
+          : done
+            ? `${done.blocks.length} blokken · ${done.patches.length} opmaak`
+            : busy
+              ? BUSY[busy.run] ?? busy.run
+              : "",
+      });
+    }
+
+    out.push(stage("klaar", "Samenvoegen", "compileren"));
+    return out;
+  }, [status, results, job]);
+
   const preview: ArticleDocument | null = useMemo(() => {
+    if (doc && mdxEdit !== null) {
+      // Halfgetypte MDX is geen reden om het artikel te laten verdwijnen; wat er
+      // nog niet van te lezen valt, blijft even staan zoals het stond.
+      try {
+        return fromMdx(mdxEdit, doc);
+      } catch {
+        return doc;
+      }
+    }
     if (doc) return doc;
 
     const pages: PageResult[] = [...pageResults];
@@ -343,13 +410,12 @@ export default function Home() {
       { file: job?.filename ?? "", pages: pages.map((p) => p.page) },
       approved,
     ).document;
-  }, [doc, frontmatter, pageResults, results, text, patches, approved, job]);
+  }, [doc, mdxEdit, frontmatter, pageResults, results, text, patches, fragments, approved, job]);
 
   return (
     <div className="frame">
       <header className="masthead">
         <h1>Vrhl · Blad Converter</h1>
-        <span className="meta">magazine → één verticale kolom</span>
       </header>
 
       <div className="columns">
@@ -413,27 +479,41 @@ export default function Home() {
             {phase === "running" ? "Bezig…" : "Convert"}
           </button>
 
-          {status.length ? (
-            <ul className="log">
-              {status.map((line, i) => (
-                <li key={i} data-state={line.state}>
-                  <span className="mark">
-                    {line.state === "start"
-                      ? "\u203a"
-                      : line.state === "fail"
-                        ? "\u00d7"
-                        : "\u00b7"}
-                  </span>
-                  <span>
-                    {line.run}
-                    {line.page ? (
-                      <span className="page"> · p{line.page}</span>
-                    ) : null}
-                  </span>
-                  <span className="detail">{line.detail ?? ""}</span>
+          {steps.length ? (
+            <ol className="steps">
+              {steps.map((step) => (
+                <li key={step.key} data-state={step.state}>
+                  <span className="dot" aria-hidden />
+                  <span className="what">{step.label}</span>
+                  <span className="how">{step.detail}</span>
                 </li>
               ))}
-            </ul>
+            </ol>
+          ) : null}
+
+          {totals ? (
+            <dl className="kv total">
+              <dt>Tijd</dt>
+              <dd>{duration(totals.ms)}</dd>
+              <dt>Tokens</dt>
+              <dd>
+                {totals.tokens.toLocaleString("nl-NL")}
+                <span className="aside"> in {totals.runs} runs</span>
+              </dd>
+              {totals.cost ? (
+                <>
+                  <dt>Kosten</dt>
+                  <dd>
+                    {money(totals.cost.total, totals.cost.currency)}
+                    <span className="aside">
+                      {" "}
+                      {money(totals.cost.ai, totals.cost.currency)} model +{" "}
+                      {money(totals.cost.ocr, totals.cost.currency)} OCR
+                    </span>
+                  </dd>
+                </>
+              ) : null}
+            </dl>
           ) : null}
         </aside>
 
@@ -441,18 +521,16 @@ export default function Home() {
           <div className="tabs">
             {(
               [
-                "stream",
-                "ocr",
+                "artikel",
                 "mdx",
                 "checks",
-                "prompts",
               ] as Tab[]
             ).map((t) => (
               <button
                 key={t}
                 data-active={tab === t}
                 onClick={() => setTab(t)}
-                disabled={ALWAYS.includes(t) ? false : t === "ocr" ? !job : !doc}
+                disabled={ALWAYS.includes(t) ? false : !doc}
               >
                 {LABELS[t]}
               </button>
@@ -467,58 +545,50 @@ export default function Home() {
                 >
                   Download JSON
                 </button>
-                <button onClick={() => download("artikel.mdx", toMdx(doc))}>
+                <button
+                  onClick={() => download("artikel.mdx", mdxEdit ?? toMdx(doc))}
+                >
                   Download MDX
                 </button>
               </>
             ) : null}
           </div>
 
-          {tab === "stream" ? (
-            <>
-              {preview && job ? (
-                <section className="pane preview" data-running={phase === "running"}>
-                  <header>
-                    <span className="label">Artikel</span>
-                    <span className="pulse">
-                      {phase === "running"
-                        ? `${pageResults.length}/${job.pageCount} pagina's`
-                        : `${preview.content.length} blokken`}
-                    </span>
-                  </header>
-                  <ArticleView doc={preview} jobId={job.id} />
-                </section>
-              ) : null}
-
-              {/* Wat run 1 letterlijk schreef, met zijn eigen blokmarkeringen. Het
-                  artikel hierboven laat zien wat daaruit volgde; dit is waar je
-                  kijkt als dat niet klopt. Open terwijl het loopt, dicht zodra
-                  het klaar is - dan is het artikel het antwoord, niet de bouw. */}
-              {streams.length ? (
-                <details className="raw" open={phase === "running"}>
-                  <summary>
-                    Wat de runs schreven
-                    <span className="pulse">
-                      {streams.length} pagina&apos;s ·{" "}
-                      {streams.reduce(
-                        (n, p) => n + (p.result?.patches.length ?? p.patches.length),
-                        0,
-                      )}{" "}
-                      opmaak
-                    </span>
-                  </summary>
-                  <Stream pages={streams} />
-                </details>
-              ) : null}
-              {!streams.length && !frontmatter ? (
-                <p className="empty">{BLURB}</p>
-              ) : null}
-            </>
+          {tab === "artikel" ? (
+            preview && job ? (
+              <section className="pane preview" data-running={phase === "running"}>
+                <header>
+                  <span className="label">Artikel</span>
+                  <span className="pulse">
+                    {phase === "running"
+                      ? `${pageResults.length}/${job.pageCount} pagina's`
+                      : `${preview.content.length} blokken`}
+                  </span>
+                </header>
+                <ArticleView doc={preview} jobId={job.id} />
+              </section>
+            ) : null
           ) : null}
 
-          {tab === "ocr" ? <Ocr jobId={job?.id ?? null} /> : null}
           {tab === "mdx" && doc ? (
-            <pre className="json">{toMdx(doc)}</pre>
+            <section className="editor">
+              <header>
+                <span className="label">
+                  MDX{mdxEdit !== null ? " · bijgewerkt" : ""}
+                </span>
+                {mdxEdit !== null ? (
+                  <button className="link" onClick={() => setMdxEdit(null)}>
+                    Terug naar wat de AI schreef
+                  </button>
+                ) : null}
+              </header>
+              <textarea
+                className="json"
+                spellCheck={false}
+                value={mdxEdit ?? toMdx(doc)}
+                onChange={(e) => setMdxEdit(e.target.value)}
+              />
+            </section>
           ) : null}
           {tab === "checks" ? (
             <Checks
@@ -527,7 +597,6 @@ export default function Home() {
               verdicts={verdicts}
             />
           ) : null}
-          {tab === "prompts" ? <Prompts /> : null}
         </main>
       </div>
     </div>
@@ -535,35 +604,18 @@ export default function Home() {
 }
 
 /** Tabs that show something of their own, run or no run. */
-const ALWAYS: Tab[] = ["stream", "checks", "prompts"];
+const ALWAYS: Tab[] = ["artikel", "checks"];
 
 const LABELS: Record<Tab, string> = {
-  stream: "Artikel",
-  ocr: "OCR",
+  artikel: "Artikel",
   mdx: "MDX",
   checks: "Controle",
-  prompts: "Prompts",
 };
 
-const BLURB =
-  "Per pagina schrijft één run de tekst uit in leesvolgorde. Wat vet of cursief staat komt niet uit een model maar uit het fontregister van de PDF zelf — deterministisch, en dus elke keer hetzelfde. Alleen een pagina zonder tekstlaag, een scan of een advertentie, wordt alsnog bekeken. Een woordindex uit de OCR kijkt alles na.";
 
 interface Settings {
   ocrPricePerPage: number;
   currency: string;
-}
-
-/** The bill, split so it can be checked against the providers' own pricing. */
-function receipt(cost: {
-  ai: number;
-  ocr: number;
-  total: number;
-  currency: string;
-}): string {
-  return `${money(cost.total, cost.currency)} (${money(cost.ai, cost.currency)} model + ${money(
-    cost.ocr,
-    cost.currency,
-  )} OCR)`;
 }
 
 /** An amount, in the notation the rest of the interface uses. */

@@ -8,7 +8,7 @@ import { env } from './env';
 import { aiCost, newLedger } from './llm/openai';
 import { newOcrLedger, ocrCost, ocrPdf, type OcrLedger } from './llm/mistral';
 import { textOf } from './pagemarkup';
-import { reconcile } from './spelling';
+import { reconcile, strayLetters } from './spelling';
 import { placeFragments } from './place';
 import { applyStyles } from './patch';
 import { buildIndex, checkAgainstIndex } from './wordindex';
@@ -84,6 +84,7 @@ export async function* runPipeline(job: Job): AsyncGenerator<RunEvent, void, voi
       ctx,
       pages.map((a) => a.image),
       pages.map((a) => `--- PAGINA ${a.page} ---\n${ocrByPage.get(a.page)?.markdown ?? ''}`).join('\n\n'),
+      pages.flatMap((a) => a.words ?? []),
       (partial) => front.push({ type: 'frontmatter', frontmatter: partial })
     ).finally(() => front.close());
 
@@ -94,6 +95,30 @@ export async function* runPipeline(job: Job): AsyncGenerator<RunEvent, void, voi
     yield { type: 'status', run: 'frontmatter', state: 'ok', page: at, detail: 'geen titel hier, verder kijken' };
   }
   ctx.context = describe(frontmatter);
+  // Een kop staat in displayletter, vaak over een illustratie, en soms is hij
+  // helemaal geen tekst maar onderdeel van het beeld - precies waar de OCR een
+  // letter laat vallen. "Mama, weet j mama" is wat daarvan overblijft.
+  //
+  // Of dat hier speelt is niet te raden maar te zien: de tekstlaag houdt de
+  // woorden die getypt zijn, dus een kop die daar niet in staat is getekend.
+  const getypt = new Set(
+    assets.slice(0, FRONTMATTER_REACH).flatMap((a) => (a.words ?? []).map((w) => w.toLowerCase()))
+  );
+  const getekend = (frontmatter.title ?? '')
+    .toLowerCase()
+    .match(/[\p{L}\p{N}]{3,}/gu)
+    ?.filter((w) => !getypt.has(w));
+  if (getypt.size && getekend?.length) {
+    yield {
+      type: 'status',
+      run: 'frontmatter',
+      state: 'ok',
+      detail: `de kop staat niet in de tekstlaag (${getekend.slice(0, 4).join(', ')}) en is van het beeld gelezen`
+    };
+  }
+  for (const stray of strayLetters([frontmatter.chapeau, frontmatter.title, frontmatter.subtitle].filter(Boolean).join(' · '))) {
+    yield { type: 'status', run: 'frontmatter', state: 'fail', detail: `losse letter in de kop: "${stray}"` };
+  }
   yield { type: 'frontmatter', frontmatter };
   yield { type: 'status', run: 'frontmatter', state: 'ok', detail: frontmatter.title ?? '(geen titel gevonden)' };
 
@@ -350,9 +375,14 @@ async function processPage(job: PageJob): Promise<PageResult> {
     warnings.push(`opmaak: "${clip(missed.text)}" (${missed.style.join('+')}) staat nergens in de pagina zoals run 1 hem schreef`);
   }
 
+  for (const stray of strayLetters(textOf(blocks))) {
+    warnings.push(`losse letter, mogelijk een OCR-misser: "${stray}"`);
+  }
+
   const applied = applyStyles(blocks, placed.patches);
   const result: PageResult = {
     page,
+    typography: asset.typography,
     blocks,
     patches: placed.patches,
     dropped: applied.dropped,

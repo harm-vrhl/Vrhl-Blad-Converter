@@ -43,6 +43,13 @@ export async function readFrontmatter(
   ctx: AgentCtx,
   images: string[],
   ocr: string,
+  /**
+   * Every word the PDF's text layer holds for this spread. Not a second reading
+   * of the page but the characters themselves - so a word that is missing from it
+   * is not text at all, but something drawn. That is exactly where the OCR is
+   * weakest, and exactly where a headline usually lives.
+   */
+  words: readonly string[],
   onPartial?: (frontmatter: Frontmatter) => void
 ): Promise<Frontmatter> {
   const prompt = promptFor('frontmatter');
@@ -55,7 +62,12 @@ export async function readFrontmatter(
     instructions: prompt.instructions,
     effort: prompt.effort,
     maxOutputTokens: prompt.maxOutputTokens,
-    input: `OCR of the opening spread:\n\n${ocr}`,
+    input: [
+      `OCR of the opening spread:\n\n${ocr}`,
+      words.length
+        ? `\n\nThe words the PDF's text layer holds on this spread. Anything you read that is not here was drawn rather than typed:\n\n${[...new Set(words)].join(' ')}`
+        : `\n\nThis spread has no text layer, so the OCR and the image are all there is. Read every field off the image and check it word by word.`
+    ].join(''),
     images: await Promise.all(images.map((image) => pageImageUrl(ctx.jobId, image))),
     schemaName: 'frontmatter',
     schema,

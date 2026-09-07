@@ -30,10 +30,21 @@ export function Checks({
               {page.blocks.length} alinea&apos;s · {tally(page.patches)} ·{' '}
               {page.continuity.continuesFromPrevious ? 'loopt door van vorige' : 'nieuwe start'} ·{' '}
               {page.continuity.continuesOnNext ? 'loopt door' : 'sluit af'}
+              <em className="bron" data-read={page.typography === 'read'}>
+                {WAARVANDAAN[page.typography ?? 'onbekend']}
+              </em>
             </span>
           </li>
         ))}
       </ul>
+
+      {pages.length ? (
+        <>
+          <hr className="rule" />
+          <span className="label">Waar de opmaak vandaan komt</span>
+          <p className="note">{herkomst(pages)}</p>
+        </>
+      ) : null}
 
       {images.length ? (
         <>
@@ -122,6 +133,31 @@ export function Checks({
       ) : null}
     </section>
   );
+}
+
+/**
+ * Hoe de opmaak van een pagina tot stand kwam.
+ *
+ * Uit de PDF is het beste geval: het fontregister zegt wat vet en cursief is, en
+ * dat antwoord is elke keer hetzelfde. Ontbreekt dat - een scan, een advertentie
+ * die als beeld is geëxporteerd, of fonts die "F1" heten in plaats van
+ * "Antonia-Bold" - dan kijkt er alsnog een model naar de page image. Dat werkt,
+ * maar het is een oordeel en geen aflezing, dus het mag niet onzichtbaar blijven.
+ */
+const WAARVANDAAN: Record<string, string> = {
+  read: 'opmaak uit de PDF',
+  'no-text-layer': 'geen tekstlaag — van het beeld gelezen',
+  'unnamed-fonts': 'fonts zonder bruikbare naam — van het beeld gelezen',
+  onbekend: 'herkomst onbekend (run van vóór het uitlezen van de PDF)'
+};
+
+function herkomst(pages: PageResult[]): string {
+  const uitPdf = pages.filter((p) => p.typography === 'read').length;
+  const gelezen = pages.length - uitPdf;
+  if (!gelezen) return `alle ${pages.length} pagina's uit het fontregister van de PDF`;
+  if (!uitPdf) return `geen enkele pagina had een bruikbare tekstlaag; alles is van de page images gelezen`;
+  const welke = pages.filter((p) => p.typography !== 'read').map((p) => `p${p.page}`);
+  return `${uitPdf} van de ${pages.length} pagina's uit de PDF · ${welke.join(', ')} van het beeld gelezen`;
 }
 
 /**
