@@ -1,12 +1,19 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArticleView } from "@/components/ArticleView";
 import { Checks } from "@/components/Checks";
+import { Ocr } from "@/components/Ocr";
+import { PageThumbs } from "@/components/PageThumbs";
 import { Prompts } from "@/components/Prompts";
 import { Stream, type PageStream } from "@/components/Stream";
 import { renderPdf } from "@/lib/client/render";
-import { toMarkdown } from "@/lib/export";
+import { blankFrontmatter, compileArticle } from "@/lib/compile";
+import { toMdx } from "@/lib/mdx";
+import { parsePage } from "@/lib/pagemarkup";
+import { applyStyles } from "@/lib/patch";
+import { placeFragments } from "@/lib/place";
+import type { StyleFragment } from "@/lib/agents/styling";
 import type {
   ArticleDocument,
   Frontmatter,
@@ -18,7 +25,7 @@ import type {
 } from "@/lib/types";
 
 type Phase = "idle" | "rendering" | "ready" | "running" | "done" | "error";
-type Tab = "stream" | "article" | "markdown" | "json" | "checks" | "prompts";
+type Tab = "stream" | "ocr" | "mdx" | "checks" | "prompts";
 
 interface StatusLine {
   run: string;
@@ -34,10 +41,15 @@ export default function Home() {
   const [status, setStatus] = useState<StatusLine[]>([]);
   const [text, setText] = useState<Record<number, string>>({});
   const [patches, setPatches] = useState<Record<number, Patch[]>>({});
+  // What run 2 read off the page. It lands while run 1 is still writing, which
+  // is what lets the pane set the words as they arrive.
+  const [fragments, setFragments] = useState<Record<number, StyleFragment[]>>({});
   const [results, setResults] = useState<Record<number, PageResult>>({});
   const [running, setRunning] = useState<Record<number, string[]>>({});
   const [frontmatter, setFrontmatter] = useState<Frontmatter | null>(null);
   const [verdicts, setVerdicts] = useState<ImageVerdict[]>([]);
+  // How this installation stands by default, and what the optional OCR costs.
+  const [settings, setSettings] = useState<Settings | null>(null);
   const [doc, setDoc] = useState<ArticleDocument | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -54,6 +66,7 @@ export default function Home() {
     setStatus([]);
     setText({});
     setPatches({});
+    setFragments({});
     setResults({});
     setRunning({});
     setFrontmatter(null);
@@ -105,6 +118,13 @@ export default function Home() {
             })),
           ),
         );
+        // The PDF's own record of what is bold and what is italic.
+        form.set("styling", JSON.stringify(rendered.styling));
+        form.set("typography", rendered.typography);
+        form.set("words", JSON.stringify(rendered.words));
+        rendered.tiles.forEach((tile, i) => {
+          form.set(`tile${i}`, tile, `tile-${i}.jpeg`);
+        });
         rendered.ripped.forEach((r, i) => {
           const ext = r.mime === "image/png" ? "png" : "jpeg";
           form.set(`rip${i}`, r.full, `rip-${i}.${ext}`);
@@ -131,12 +151,27 @@ export default function Home() {
     }
   }, []);
 
+  useEffect(() => {
+    let live = true;
+    fetch("/api/settings")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: Settings | null) => {
+        if (!live || !body) return;
+        setSettings(body);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+
   const convert = useCallback(async () => {
     if (!job) return;
     setPhase("running");
     setStatus([]);
     setText({});
     setPatches({});
+    setFragments({});
     setResults({});
     setRunning({});
     setDoc(null);
@@ -193,6 +228,9 @@ export default function Home() {
               event.text === "\f" ? "" : (prev[event.page] ?? "") + event.text,
           }));
           break;
+        case "styling":
+          setFragments((prev) => ({ ...prev, [event.page]: event.fragments }));
+          break;
         case "patch":
           setPatches((prev) => ({
             ...prev,
@@ -211,13 +249,16 @@ export default function Home() {
         case "done":
           setDoc(event.document);
           setPhase("done");
-          setTab("article");
+          // The article is already on screen, at the top of this same tab.
           setStatus((prev) => [
             ...prev,
             {
               run: "klaar",
               state: "ok",
-              detail: `${event.runs} runs · ${event.tokens} tokens`,
+              detail:
+                `${event.runs} runs · ${event.tokens} tokens · ${duration(event.ms)}` +
+                (event.ocr ? ` · OCR ${event.ocr.calls} calls, ${event.ocr.pages} pagina's` : "") +
+                (event.cost ? ` · ${receipt(event.cost)}` : ""),
             },
           ]);
           break;
@@ -230,6 +271,7 @@ export default function Home() {
       ...Object.keys(text).map(Number),
       ...Object.keys(results).map(Number),
       ...Object.keys(patches).map(Number),
+      ...Object.keys(fragments).map(Number),
     ]);
     return [...numbers]
       .sort((a, b) => a - b)
@@ -237,15 +279,71 @@ export default function Home() {
         page,
         text: text[page] ?? "",
         patches: patches[page] ?? [],
+        fragments: fragments[page] ?? [],
         result: results[page],
         running: running[page] ?? [],
       }));
-  }, [text, patches, results, running]);
+  }, [text, patches, fragments, results, running]);
 
   const pageResults = useMemo(
     () => Object.values(results).sort((a, b) => a.page - b.page),
     [results],
   );
+
+  // The images run 1 was allowed to place: everything the triage kept. Before
+  // the verdicts arrive nothing is rejected yet, which is also what the pipeline
+  // does with a triage that failed.
+  const approved = useMemo(() => {
+    const rejected = new Set(verdicts.filter((v) => !v.keep).map((v) => v.id));
+    return (job?.images ?? []).filter((image) => !rejected.has(image.id));
+  }, [job, verdicts]);
+
+  // The article as it stands right now, built by the same compileArticle the
+  // pipeline finishes with. That is the point: the live preview cannot drift
+  // from the result. The frontmatter appears the moment it is read, and a page
+  // that is still being written is parsed here from run 1's own output, with
+  // the same parser the server uses - so the column fills block by block, and
+  // the page's real result takes over the moment its two runs are done.
+  //
+  // The typography is laid on here too, with the same placer the server uses.
+  // Run 2 no longer waits for run 1, so its marks are usually in before the text
+  // has finished arriving; placing them here is what lets the reader watch a
+  // paragraph appear already set rather than watch it change afterwards.
+  const preview: ArticleDocument | null = useMemo(() => {
+    if (doc) return doc;
+
+    const pages: PageResult[] = [...pageResults];
+    for (const [key, raw] of Object.entries(text)) {
+      const page = Number(key);
+      if (results[page] || !raw.trim()) continue;
+      const { blocks, continuity } = parsePage(page, raw, approved);
+      // The server's placed patches once it has sent them, and until then run 2's
+      // own fragments, placed against the text that has arrived so far.
+      const marks = patches[page]?.length
+        ? patches[page]
+        : placeFragments(blocks, fragments[page] ?? []).patches;
+      const applied = applyStyles(blocks, marks);
+      pages.push({
+        page,
+        blocks,
+        patches: marks,
+        dropped: applied.dropped,
+        content: applied.content,
+        continuity,
+        check: { unknown: [], overused: [], score: 1 },
+        warnings: [],
+      });
+    }
+    pages.sort((a, b) => a.page - b.page);
+
+    if (!frontmatter && !pages.length) return null;
+    return compileArticle(
+      frontmatter ?? blankFrontmatter(),
+      pages,
+      { file: job?.filename ?? "", pages: pages.map((p) => p.page) },
+      approved,
+    ).document;
+  }, [doc, frontmatter, pageResults, results, text, patches, approved, job]);
 
   return (
     <div className="frame">
@@ -300,14 +398,7 @@ export default function Home() {
                 <dt>Klaar</dt>
                 <dd>{pageResults.length}</dd>
               </dl>
-              {thumbs.length ? (
-                <div className="thumbs" style={{ marginTop: "1rem" }}>
-                  {thumbs.map((src, i) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img key={i} src={src} alt={`pagina ${i + 1}`} />
-                  ))}
-                </div>
-              ) : null}
+              <PageThumbs thumbs={thumbs} jobId={job.id} pages={job.pages} />
             </>
           ) : null}
 
@@ -351,9 +442,8 @@ export default function Home() {
             {(
               [
                 "stream",
-                "article",
-                "markdown",
-                "json",
+                "ocr",
+                "mdx",
                 "checks",
                 "prompts",
               ] as Tab[]
@@ -362,7 +452,7 @@ export default function Home() {
                 key={t}
                 data-active={tab === t}
                 onClick={() => setTab(t)}
-                disabled={t !== "stream" && t !== "prompts" && t !== "checks" && !doc}
+                disabled={ALWAYS.includes(t) ? false : t === "ocr" ? !job : !doc}
               >
                 {LABELS[t]}
               </button>
@@ -377,8 +467,8 @@ export default function Home() {
                 >
                   Download JSON
                 </button>
-                <button onClick={() => download("artikel.md", toMarkdown(doc))}>
-                  Download MD
+                <button onClick={() => download("artikel.mdx", toMdx(doc))}>
+                  Download MDX
                 </button>
               </>
             ) : null}
@@ -386,41 +476,49 @@ export default function Home() {
 
           {tab === "stream" ? (
             <>
-              {frontmatter ? (
-                <dl className="kv frontmatter">
-                  <dt>Chapeau</dt>
-                  <dd>{frontmatter.chapeau ?? "geen"}</dd>
-                  <dt>Titel</dt>
-                  <dd>{frontmatter.title ?? "geen"}</dd>
-                  <dt>Ondertitel</dt>
-                  <dd>{frontmatter.subtitle ?? "geen"}</dd>
-                  <dt>Auteur</dt>
-                  <dd>{frontmatter.authors.join(", ") || "geen"}</dd>
-                  <dt>Fotograaf</dt>
-                  <dd>{frontmatter.photographers.join(", ") || "geen"}</dd>
-                  <dt>Illustrator</dt>
-                  <dd>{frontmatter.illustrators.join(", ") || "geen"}</dd>
-                  <dt>Datum</dt>
-                  <dd>{frontmatter.date ?? "geen"}</dd>
-                  <dt>Intro</dt>
-                  <dd>{frontmatter.intro ?? "geen"}</dd>
-                </dl>
+              {preview && job ? (
+                <section className="pane preview" data-running={phase === "running"}>
+                  <header>
+                    <span className="label">Artikel</span>
+                    <span className="pulse">
+                      {phase === "running"
+                        ? `${pageResults.length}/${job.pageCount} pagina's`
+                        : `${preview.content.length} blokken`}
+                    </span>
+                  </header>
+                  <ArticleView doc={preview} jobId={job.id} />
+                </section>
               ) : null}
-              <Stream pages={streams} />
+
+              {/* Wat run 1 letterlijk schreef, met zijn eigen blokmarkeringen. Het
+                  artikel hierboven laat zien wat daaruit volgde; dit is waar je
+                  kijkt als dat niet klopt. Open terwijl het loopt, dicht zodra
+                  het klaar is - dan is het artikel het antwoord, niet de bouw. */}
+              {streams.length ? (
+                <details className="raw" open={phase === "running"}>
+                  <summary>
+                    Wat de runs schreven
+                    <span className="pulse">
+                      {streams.length} pagina&apos;s ·{" "}
+                      {streams.reduce(
+                        (n, p) => n + (p.result?.patches.length ?? p.patches.length),
+                        0,
+                      )}{" "}
+                      opmaak
+                    </span>
+                  </summary>
+                  <Stream pages={streams} />
+                </details>
+              ) : null}
               {!streams.length && !frontmatter ? (
                 <p className="empty">{BLURB}</p>
               ) : null}
             </>
           ) : null}
 
-          {tab === "article" && doc && job ? (
-            <ArticleView doc={doc} jobId={job.id} />
-          ) : null}
-          {tab === "markdown" && doc ? (
-            <pre className="json">{toMarkdown(doc)}</pre>
-          ) : null}
-          {tab === "json" && doc ? (
-            <pre className="json">{JSON.stringify(doc, null, 2)}</pre>
+          {tab === "ocr" ? <Ocr jobId={job?.id ?? null} /> : null}
+          {tab === "mdx" && doc ? (
+            <pre className="json">{toMdx(doc)}</pre>
           ) : null}
           {tab === "checks" ? (
             <Checks
@@ -436,17 +534,53 @@ export default function Home() {
   );
 }
 
+/** Tabs that show something of their own, run or no run. */
+const ALWAYS: Tab[] = ["stream", "checks", "prompts"];
+
 const LABELS: Record<Tab, string> = {
-  stream: "Live",
-  article: "Artikel",
-  markdown: "Markdown",
-  json: "JSON",
+  stream: "Artikel",
+  ocr: "OCR",
+  mdx: "MDX",
   checks: "Controle",
   prompts: "Prompts",
 };
 
 const BLURB =
-  "Per pagina schrijft één run de tekst uit in leesvolgorde. Alle andere runs kijken naar diezelfde tekst en leveren alleen patches: een stukje styling, een tussenkop, een quote met zijn plek. Die patches worden deterministisch toegepast, dus de runs kunnen tegelijk draaien zonder elkaar in de weg te zitten.";
+  "Per pagina schrijft één run de tekst uit in leesvolgorde. Wat vet of cursief staat komt niet uit een model maar uit het fontregister van de PDF zelf — deterministisch, en dus elke keer hetzelfde. Alleen een pagina zonder tekstlaag, een scan of een advertentie, wordt alsnog bekeken. Een woordindex uit de OCR kijkt alles na.";
+
+interface Settings {
+  ocrPricePerPage: number;
+  currency: string;
+}
+
+/** The bill, split so it can be checked against the providers' own pricing. */
+function receipt(cost: {
+  ai: number;
+  ocr: number;
+  total: number;
+  currency: string;
+}): string {
+  return `${money(cost.total, cost.currency)} (${money(cost.ai, cost.currency)} model + ${money(
+    cost.ocr,
+    cost.currency,
+  )} OCR)`;
+}
+
+/** An amount, in the notation the rest of the interface uses. */
+function money(amount: number, currency = "USD"): string {
+  return `${currency} ${amount
+    .toFixed(amount < 0.1 ? 4 : amount < 1 ? 3 : 2)
+    .replace(".", ",")}`;
+}
+
+/** How long the run took, in the shortest form that still reads. */
+function duration(ms: number): string {
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1).replace(".", ",")} s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds - minutes * 60);
+  return rest ? `${minutes} m ${rest} s` : `${minutes} m`;
+}
 
 function download(filename: string, content: string) {
   const url = URL.createObjectURL(

@@ -1,6 +1,24 @@
 import { joinTorn } from './cleanup';
 import { normalizeForCompare } from './util';
-import type { ArticleDocument, ContentNode, Frontmatter, PageResult } from './types';
+import type { ArticleDocument, ArticleHeader, ContentNode, ExtractedImage, Frontmatter, PageResult } from './types';
+
+/** Below this share of the opening page an image is an illustration, not a hero. */
+const HERO_MIN_AREA = 20;
+
+/** An article with nothing read off it yet. */
+export function blankFrontmatter(): Frontmatter {
+  return {
+    chapeau: null,
+    title: null,
+    subtitle: null,
+    authors: [],
+    photographers: [],
+    illustrators: [],
+    date: null,
+    intro: null,
+    italics: []
+  };
+}
 
 const PAGE_FURNITURE = /^(?:\d{1,4}|[ivxlcdm]{1,7}|pagina\s*\d+|blz\.?\s*\d+)$/i;
 
@@ -12,7 +30,8 @@ const PAGE_FURNITURE = /^(?:\d{1,4}|[ivxlcdm]{1,7}|pagina\s*\d+|blz\.?\s*\d+)$/i
 export function compileArticle(
   frontmatter: Frontmatter,
   pages: PageResult[],
-  source: { file: string; pages: number[] }
+  source: { file: string; pages: number[] },
+  images: ExtractedImage[] = []
 ): { document: ArticleDocument; seams: number } {
   const ordered = [...pages].sort((a, b) => a.page - b.page);
   const noise = repeatedAcrossPages(ordered);
@@ -49,7 +68,17 @@ export function compileArticle(
         content[at] = {
           type: 'paragraph',
           content: joinTorn(previous.content, opening.content),
-          styles: [...previous.styles, ...opening.styles]
+          // The second half's marks now sit further into a longer paragraph, so
+          // the occurrence each of them names has to move with it - otherwise a
+          // mark meant for the first "Indonesië" after the seam lands on one
+          // before it.
+          styles: [
+            ...previous.styles,
+            ...opening.styles.map((span) => ({
+              ...span,
+              nth: (span.nth ?? 0) + occurrences(previous.content, span.text)
+            }))
+          ]
         };
         nodes.splice(next, 1); // the floats that stood above it keep their place
         seams++;
@@ -58,7 +87,46 @@ export function compileArticle(
     content.push(...nodes);
   }
 
-  return { document: { source, frontmatter, content: pullsAfterSource(content) }, seams };
+  const body = pullsAfterSource(content);
+  const header = liftHero(body, images, ordered[0]?.page);
+  return { document: { source, frontmatter, header, content: body }, seams };
+}
+
+function occurrences(text: string, needle: string): number {
+  if (!needle) return 0;
+  let n = 0;
+  for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + 1)) n++;
+  return n;
+}
+
+/**
+ * The opening image is the hero of the article page, not a picture in the
+ * running text. A magazine opens on a photo across half a spread, so the
+ * biggest bitmap on the first page is lifted out of the body and given to the
+ * header. An article that opens on text keeps every image where it stands.
+ */
+function liftHero(content: ContentNode[], images: ExtractedImage[], firstPage: number | undefined): ArticleHeader | null {
+  if (firstPage === undefined) return null;
+
+  const opening = new Map(
+    images.filter((image) => image.page === firstPage && image.areaPct >= HERO_MIN_AREA).map((image) => [image.file, image])
+  );
+
+  let at = -1;
+  let widest = 0;
+  content.forEach((node, i) => {
+    if (node.type !== 'image' || !node.file) return;
+    const area = opening.get(node.file)?.areaPct ?? 0;
+    if (area > widest) {
+      widest = area;
+      at = i;
+    }
+  });
+  if (at < 0) return null;
+
+  const [hero] = content.splice(at, 1);
+  if (hero.type !== 'image' || !hero.file) return null;
+  return { id: hero.id, file: hero.file, alt: hero.caption };
 }
 
 /**

@@ -1,7 +1,7 @@
 # Vrhl · Blad Converter
 
-Een opgemaakt magazineartikel wordt één verticale kolom. Per pagina, met twee
-AI-runs en een woordindex die ze allebei nakijkt.
+Een opgemaakt magazineartikel wordt één verticale kolom. Per pagina, met een
+woordindex die elke run nakijkt en typografie die rechtstreeks uit de PDF komt.
 
 ## De flow
 
@@ -41,9 +41,14 @@ het blad staan.
                     Compileren tot één artikel
 ```
 
-Twee AI-runs per pagina, plus de frontmatter-agent voor het hele artikel. Binnen
-een pagina lopen ze strikt na elkaar: run 2 begint pas als run 1 klaar is.
-Pagina's onderling lopen wel parallel.
+Eén AI-run per pagina die tekst schrijft, plus de frontmatter-agent voor het hele
+artikel. Pagina's lopen parallel, en binnen een pagina loopt de opmaak gelijk op
+met het schrijven — de tekst verschijnt dus meteen mét zijn vet en cursief.
+
+De opmaak komt niet uit een model maar **uit het fontregister van de PDF zelf**.
+Alleen voor pagina's zonder tekstlaag — een scan, een advertentie die als beeld is
+geëxporteerd — kijkt er alsnog een run naar de page image. Zie
+[TYPOGRAFIE.md](TYPOGRAFIE.md) voor het waarom en de vallen.
 
 ## De regels van run 1
 

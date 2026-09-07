@@ -1,6 +1,6 @@
 import { readArtifactAsDataUrl } from '../store';
 import type { Ledger, JsonSchema } from '../llm/openai';
-import type { Block } from '../types';
+import type { Block, PageBlock } from '../types';
 
 export interface AgentCtx {
   jobId: string;
@@ -34,11 +34,19 @@ export function strArray(description: string): JsonSchema {
 export function blockList(blocks: Block[]): string {
   return blocks
     .map((b) => {
+      // A box is one target, its own contents included: run 2 names the box and
+      // the fragment, and the applier finds which line of it the fragment is in.
       if (b.type === 'insert') {
-        return `[${b.id}] (insert) ${b.text}\n${(b.paragraphs ?? []).join('\n')}`;
+        const inside = (b.children ?? []).map((child) => bodyOf(child)).filter(Boolean).join('\n');
+        return `[${b.id}] (insert) ${b.text}\n${inside}`;
       }
       if (b.type === 'image') return `[${b.id}] (image) ${b.caption ?? ''}`;
       return `[${b.id}] (${b.type}) ${b.text}`;
     })
     .join('\n\n');
+}
+
+function bodyOf(child: PageBlock): string {
+  if (child.type === 'image') return child.caption ?? '';
+  return child.text;
 }

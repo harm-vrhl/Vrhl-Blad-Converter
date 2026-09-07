@@ -81,3 +81,87 @@ export class EventQueue<T> {
     }
   }
 }
+
+/**
+ * What can already be read from JSON that is still arriving.
+ *
+ * A structured run answers with one object, so until the last brace lands there
+ * is nothing to parse - and a run that spends twenty seconds on an opening
+ * spread leaves the reader looking at nothing for twenty seconds. This reads the
+ * half of it that is finished: everything up to the last completed field is kept,
+ * whatever was mid-word is dropped, and the open brackets are closed so the rest
+ * parses.
+ *
+ * It is deliberately conservative. A field it is not sure about is a field the
+ * caller does not get yet, because showing half a title and then changing it is
+ * worse than showing it a moment later.
+ */
+export function partialJson<T>(text: string): T | null {
+  const start = text.indexOf('{');
+  if (start < 0) return null;
+  const body = text.slice(start);
+
+  // Whole and valid already: nothing to repair.
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    /* still arriving */
+  }
+
+  const cut = lastComplete(body);
+  if (cut <= 0) return null;
+  const closed = closeOpen(body.slice(0, cut));
+  try {
+    return JSON.parse(closed) as T;
+  } catch {
+    return null;
+  }
+}
+
+/** Where the last finished field or element ends, ignoring anything after it. */
+function lastComplete(src: string): number {
+  let inString = false;
+  let escaped = false;
+  let depth = 0;
+  let cut = -1;
+
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') {
+      depth--;
+      cut = i + 1;
+    } else if (ch === ',' && depth > 0) cut = i;
+  }
+  return cut;
+}
+
+/** The same text with every bracket it left open closed again. */
+function closeOpen(src: string): string {
+  let text = src.replace(/[\s,]+$/, '');
+  let inString = false;
+  let escaped = false;
+  const open: string[] = [];
+
+  for (const ch of text) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') open.push('}');
+    else if (ch === '[') open.push(']');
+    else if (ch === '}' || ch === ']') open.pop();
+  }
+  if (inString) text += '"';
+  return text + open.reverse().join('');
+}

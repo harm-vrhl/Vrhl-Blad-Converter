@@ -14,6 +14,16 @@ export function newLedger(): Ledger {
   return { calls: 0, inputTokens: 0, outputTokens: 0, failures: 0 };
 }
 
+/**
+ * What this ledger has run up, at the configured list price. Cached input reads
+ * are billed at a twentieth of a fresh one and the ledger cannot tell them apart,
+ * so this is the ceiling: the real bill is this or less.
+ */
+export function aiCost(ledger: Ledger): number {
+  return (ledger.inputTokens * env.aiPriceInput + ledger.outputTokens * env.aiPriceOutput) / 1_000_000;
+}
+
+
 export interface AskOptions {
   agent: string;
   /** System prompt: the agent's single, narrow job. */
@@ -28,6 +38,13 @@ export interface AskOptions {
   /** Overrides OPENAI_REASONING_EFFORT for this one run. */
   effort?: string;
   ledger?: Ledger;
+  /**
+   * Called with every fragment as it arrives. A structured answer is one object,
+   * so nothing can be parsed until the last brace lands - but the caller can read
+   * the finished half of it as it comes, which is what turns a long silence into
+   * a field appearing.
+   */
+  onDelta?: (text: string) => void;
 }
 
 const TIMEOUT_MS = 240_000;
@@ -90,13 +107,16 @@ async function call(mode: 'responses' | 'chat', opts: AskOptions): Promise<strin
       signal: ctrl.signal
     });
 
-    const text = await res.text();
-    if (!res.ok) {
+    if (!res.ok || (opts.onDelta && !res.body)) {
+      const text = await res.text();
       const err = new Error(`${res.status} ${text.slice(0, 400)}`) as Error & { status: number; code: string };
       err.status = res.status;
       err.code = errorCode(text);
       throw err;
     }
+    if (opts.onDelta && res.body) return await consume(res.body, mode, opts.ledger, opts.onDelta);
+
+    const text = await res.text();
     const json = JSON.parse(text) as Record<string, unknown>;
     account(json, opts.ledger);
     return mode === 'responses' ? extractResponses(json) : extractChat(json);
@@ -116,7 +136,8 @@ function responsesBody(opts: AskOptions) {
     max_output_tokens: opts.maxOutputTokens ?? 16000,
     text: {
       format: { type: 'json_schema', name: opts.schemaName, strict: true, schema: opts.schema }
-    }
+    },
+    ...(opts.onDelta ? { stream: true } : {})
   };
 }
 
@@ -136,7 +157,8 @@ function chatBody(opts: AskOptions) {
     response_format: {
       type: 'json_schema',
       json_schema: { name: opts.schemaName, strict: true, schema: opts.schema }
-    }
+    },
+    ...(opts.onDelta ? { stream: true, stream_options: { include_usage: true } } : {})
   };
 }
 
@@ -286,51 +308,66 @@ async function stream(mode: 'responses' | 'chat', opts: AskTextOptions): Promise
       throw err;
     }
 
-    let out = '';
-    let cutOff = false;
-    for await (const event of sseEvents(res.body)) {
-      if (event === '[DONE]') break;
-      let json: Record<string, unknown>;
-      try {
-        json = JSON.parse(event) as Record<string, unknown>;
-      } catch {
-        continue;
-      }
-      account(json, opts.ledger);
-
-      if (mode === 'responses') {
-        if (json.type === 'response.output_text.delta') {
-          const delta = json.delta as string;
-          out += delta;
-          opts.onDelta?.(delta);
-        } else if (json.type === 'response.completed') {
-          account((json.response ?? {}) as Record<string, unknown>, opts.ledger);
-        } else if (json.type === 'response.incomplete' || json.type === 'response.failed') {
-          cutOff = true;
-        }
-      } else {
-        const choice = (json.choices as Array<{ delta?: { content?: string }; finish_reason?: string }> | undefined)?.[0];
-        const delta = choice?.delta?.content ?? '';
-        if (delta) {
-          out += delta;
-          opts.onDelta?.(delta);
-        }
-        if (choice?.finish_reason === 'length') cutOff = true;
-      }
-    }
-
-    // An empty answer is legitimate: a page can be one full-bleed photo with no
-    // running story, and the prompt asks for nothing in that case. Only a model
-    // that was cut off mid-sentence is a failure, and retrying will not fix it.
-    if (cutOff) {
-      const err = new Error('het model werd afgekapt; verhoog max_output_tokens') as Error & { fatal: boolean };
-      err.fatal = true;
-      throw err;
-    }
-    return out;
+    return await consume(res.body, mode, opts.ledger, opts.onDelta);
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Reads one streamed answer, whichever surface it came from and whether it is
+ * plain text or a structured object. Both arrive the same way: as deltas of one
+ * string, which is why they can share this.
+ */
+async function consume(
+  body: ReadableStream<Uint8Array>,
+  mode: 'responses' | 'chat',
+  ledger: Ledger | undefined,
+  onDelta: ((text: string) => void) | undefined
+): Promise<string> {
+  let out = '';
+  let cutOff = false;
+
+  for await (const event of sseEvents(body)) {
+    if (event === '[DONE]') break;
+    let json: Record<string, unknown>;
+    try {
+      json = JSON.parse(event) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    account(json, ledger);
+
+    if (mode === 'responses') {
+      if (json.type === 'response.output_text.delta') {
+        const delta = json.delta as string;
+        out += delta;
+        onDelta?.(delta);
+      } else if (json.type === 'response.completed') {
+        account((json.response ?? {}) as Record<string, unknown>, ledger);
+      } else if (json.type === 'response.incomplete' || json.type === 'response.failed') {
+        cutOff = true;
+      }
+    } else {
+      const choice = (json.choices as Array<{ delta?: { content?: string }; finish_reason?: string }> | undefined)?.[0];
+      const delta = choice?.delta?.content ?? '';
+      if (delta) {
+        out += delta;
+        onDelta?.(delta);
+      }
+      if (choice?.finish_reason === 'length') cutOff = true;
+    }
+  }
+
+  // An empty answer is legitimate: a page can be one full-bleed photo with no
+  // running story, and the prompt asks for nothing in that case. Only a model
+  // that was cut off mid-sentence is a failure, and retrying will not fix it.
+  if (cutOff) {
+    const err = new Error('het model werd afgekapt; verhoog max_output_tokens') as Error & { fatal: boolean };
+    err.fatal = true;
+    throw err;
+  }
+  return out;
 }
 
 function textContent(opts: AskTextOptions, mode: 'responses' | 'chat'): Record<string, unknown>[] {

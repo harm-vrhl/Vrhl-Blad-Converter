@@ -1,6 +1,6 @@
 
 // Dutch words that legitimately follow a dangling hyphen ("kunst- en cultuurbeleid").
-const ELLIPSIS_FOLLOWERS = new Set(['en', 'of', 'noch', 'dan', 'tot', 'in', 'als']);
+export const ELLIPSIS_FOLLOWERS = new Set(['en', 'of', 'noch', 'dan', 'tot', 'in', 'als']);
 
 /**
  * Step 12, Text Cleanup. Deterministic on purpose: this step must never be able
@@ -21,6 +21,21 @@ export function cleanupText(input: string): string {
 
   // Remaining single newlines are column/line wraps; blank lines are real breaks.
   text = text.replace(/\s*\n\s*/g, ' ');
+
+  // Mistral reads the page as markdown, so its emphasis markers travel with the
+  // words. An italic passage is one wrap around the lines it was broken on;
+  // those markers have to come off after the lines are one paragraph again, or
+  // the opening and closing asterisks survive as printed characters. The words
+  // stay and the markers go: typography is run 2's to decide, off the page image.
+  // The content may not begin or end with a space, so "2 * 3 * 4" keeps its
+  // asterisks. The edges of the content may not be the marker itself either, or
+  // a closing "**" leaves one asterisk behind.
+  text = text.replace(/\*{1,3}([^*\s](?:[^*]*[^*\s])?)\*{1,3}/g, '$1');
+  text = text.replace(/~~([^~\s](?:[^~]*[^~\s])?)~~/g, '$1');
+  text = text.replace(/`([^`]+?)`/g, '$1');
+  // Underscores only away from word characters and slashes, or a URL would lose
+  // part of its path.
+  text = text.replace(/(?<![\w/])_{1,2}([^_\s](?:[^_]*[^_\s])?)_{1,2}(?![\w/])/g, '$1');
 
   // A "continued overleaf" arrow at the very end of a block is page furniture.
   text = text.replace(/[\s]*[\u2192\u27f6\u2794\u279c\u25b6\u25ba]+[\s]*$/u, '');

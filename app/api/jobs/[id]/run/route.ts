@@ -42,6 +42,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   return new Response(stream, { headers: sseHeaders() });
 }
 
+
 function sseHeaders(): Record<string, string> {
   return {
     'content-type': 'text/event-stream; charset=utf-8',

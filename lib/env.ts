@@ -3,6 +3,13 @@ function str(name: string, fallback: string): string {
   return v === undefined || v === '' ? fallback : v;
 }
 
+
+/** A price may legitimately be set to zero, so it cannot use num(). */
+function price(name: string, fallback: number): number {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v >= 0 ? v : fallback;
+}
+
 function num(name: string, fallback: number): number {
   const v = Number(process.env[name]);
   return Number.isFinite(v) && v > 0 ? v : fallback;
@@ -39,6 +46,33 @@ export const env = {
   },
   get confidenceThreshold() {
     return num('CONFIDENCE_THRESHOLD', 0.7);
+  },
+  /**
+   * The list prices, per million tokens. gpt-5.6-terra is $2 in and $12 out; a
+   * cached input read is $0.10, which is not counted here because the ledger does
+   * not know which reads were cached, so the model half of a bill is a ceiling
+   * rather than an estimate.
+   *
+   * Override both when OPENAI_MODEL names something else, or to bill in another
+   * currency - PRICE_CURRENCY is only the label on the total.
+   */
+  get aiPriceInput() {
+    return price('OPENAI_PRICE_INPUT', 2);
+  },
+  get aiPriceOutput() {
+    return price('OPENAI_PRICE_OUTPUT', 12);
+  },
+  /**
+   * Mistral bills OCR at $4 per 1000 pages, and a page is a page whether it is a
+   * whole spread or one cropped paragraph - which is what makes reading a page
+   * block by block cost what it costs.
+   */
+  get ocrPricePerPage() {
+    return price('MISTRAL_PRICE_PER_PAGE', 0.004);
+  },
+  /** What to call the numbers. They are the providers' own, so dollars. */
+  get priceCurrency() {
+    return str('PRICE_CURRENCY', 'USD');
   },
   get dataDir() {
     return str('DATA_DIR', '.data');

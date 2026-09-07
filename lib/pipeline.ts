@@ -1,13 +1,15 @@
 import { readFrontmatter } from './agents/frontmaster';
 import { triageImages } from './agents/imagetriage';
 import { writeStructure } from './agents/structure';
-import { detectStyling } from './agents/styling';
+import { detectStyling, type StyleFragment } from './agents/styling';
 import type { AgentCtx } from './agents/common';
-import { compileArticle } from './compile';
+import { blankFrontmatter, compileArticle } from './compile';
 import { env } from './env';
-import { newLedger } from './llm/openai';
-import { ocrPdf } from './llm/mistral';
+import { aiCost, newLedger } from './llm/openai';
+import { newOcrLedger, ocrCost, ocrPdf, type OcrLedger } from './llm/mistral';
 import { textOf } from './pagemarkup';
+import { reconcile } from './spelling';
+import { placeFragments } from './place';
 import { applyStyles } from './patch';
 import { buildIndex, checkAgainstIndex } from './wordindex';
 import { readArtifact, saveJob, writeArtifact } from './store';
@@ -34,15 +36,32 @@ const UNKNOWN_LIMIT = 5;
 const FRONTMATTER_REACH = 3;
 
 export async function* runPipeline(job: Job): AsyncGenerator<RunEvent, void, void> {
+  const started = Date.now();
   const ledger = newLedger();
+  const ocrLedger = newOcrLedger();
   const assets = [...job.pages].sort((a, b) => a.page - b.page);
 
   // 1. Word index per page. Mistral decides which words exist; this is the
   //    yardstick every AI output is held against.
   yield { type: 'status', run: 'woordindex', state: 'start', detail: 'Mistral leest alle pagina-images' };
   const pdf = await readArtifact(job.id, 'source.pdf');
-  const ocrPages = await ocrPdf(job.id, pdf);
+  const ocrPages = await ocrPdf(job.id, pdf, ocrLedger);
   await writeArtifact(job.id, 'ocr.json', JSON.stringify(ocrPages, null, 2));
+  // The OCR read the page from a picture and the file holds the characters, so
+  // where the two disagree about a diacritic and about nothing else, the file
+  // settles it - before the word index is built, because the index is what every
+  // later run is held against and it should be held against the right spelling.
+  const corrected: string[] = [];
+  for (const ocr of ocrPages) {
+    const asset = assets.find((a) => a.page === ocr.page);
+    const { text, swaps } = reconcile(ocr.markdown, asset?.words ?? []);
+    ocr.markdown = text;
+    for (const swap of swaps) corrected.push(`p${ocr.page}: ${swap.from} → ${swap.to}${swap.count > 1 ? ` (${swap.count}×)` : ''}`);
+  }
+  if (corrected.length) {
+    yield { type: 'status', run: 'woordindex', state: 'ok', detail: `spelling uit de PDF: ${corrected.join(', ')}` };
+  }
+
   const ocrByPage = new Map(ocrPages.map((p) => [p.page, p]));
   const index = new Map(ocrPages.map((p) => [p.page, buildIndex(p.page, p.markdown)]));
   const words = [...index.values()].reduce((n, i) => n + i.total, 0);
@@ -56,11 +75,21 @@ export async function* runPipeline(job: Job): AsyncGenerator<RunEvent, void, voi
     const pages = assets.slice(0, reach);
     const at = pages[reach - 1].page;
     yield { type: 'status', run: 'frontmatter', state: 'start', page: at };
-    frontmatter = await readFrontmatter(
+
+    // The run hands its half-finished object to a callback and a generator cannot
+    // yield from one, so the partials go through a queue that is drained while the
+    // run is still going - the same way the page runs get their events out.
+    const front = new EventQueue<RunEvent>();
+    const reading = readFrontmatter(
       ctx,
       pages.map((a) => a.image),
-      pages.map((a) => `--- PAGINA ${a.page} ---\n${ocrByPage.get(a.page)?.markdown ?? ''}`).join('\n\n')
-    );
+      pages.map((a) => `--- PAGINA ${a.page} ---\n${ocrByPage.get(a.page)?.markdown ?? ''}`).join('\n\n'),
+      (partial) => front.push({ type: 'frontmatter', frontmatter: partial })
+    ).finally(() => front.close());
+
+    for await (const event of front.drain()) yield event;
+    frontmatter = await reading;
+
     if (frontmatter.title) break;
     yield { type: 'status', run: 'frontmatter', state: 'ok', page: at, detail: 'geen titel hier, verder kijken' };
   }
@@ -142,10 +171,12 @@ export async function* runPipeline(job: Job): AsyncGenerator<RunEvent, void, voi
 
   // String the pages together into one article.
   yield { type: 'status', run: 'compileren', state: 'start' };
-  const { document, seams } = compileArticle(frontmatter, results, {
-    file: job.filename,
-    pages: assets.map((a) => a.page)
-  });
+  const { document, seams } = compileArticle(
+    frontmatter,
+    results,
+    { file: job.filename, pages: assets.map((a) => a.page) },
+    approved
+  );
   await writeArtifact(job.id, 'article.json', JSON.stringify(document, null, 2));
   await writeArtifact(job.id, 'pages.json', JSON.stringify(results, null, 2));
   job.document = document;
@@ -163,7 +194,15 @@ export async function* runPipeline(job: Job): AsyncGenerator<RunEvent, void, voi
     document,
     pages: results,
     runs: ledger.calls,
-    tokens: ledger.inputTokens + ledger.outputTokens
+    tokens: ledger.inputTokens + ledger.outputTokens,
+    ocr: { calls: ocrLedger.calls, pages: ocrLedger.pages, euro: ocrCost(ocrLedger) },
+    cost: {
+      ai: aiCost(ledger),
+      ocr: ocrCost(ocrLedger),
+      total: aiCost(ledger) + ocrCost(ocrLedger),
+      currency: env.priceCurrency
+    },
+    ms: Date.now() - started
   };
 }
 
@@ -180,9 +219,14 @@ interface PageJob {
 }
 
 /**
- * One page, two runs, strictly in order.
- * Run 1 writes the page out. Only when that is finished does run 2 look at the
- * typography and replace the styled words in run 1's output.
+ * One page, two runs, side by side.
+ *
+ * They used to be in order, because run 2 was handed run 1's blocks to hang its
+ * patches on. It no longer is: it quotes the page instead, and what it quotes is
+ * placed afterwards. So it starts at the same moment run 1 does, and by the time
+ * the text has finished streaming the typography is usually already in - which is
+ * what lets the reader watch the page appear with its marks on rather than have
+ * them dropped in afterwards.
  */
 async function processPage(job: PageJob): Promise<PageResult> {
   const { ctx, asset, emit } = job;
@@ -190,6 +234,74 @@ async function processPage(job: PageJob): Promise<PageResult> {
   const markdown = job.ocr?.markdown ?? '';
   const index = job.index ?? buildIndex(page, markdown);
   const warnings: string[] = [];
+
+  // Where the PDF has a text layer, the typography is not a judgement at all: the
+  // font each run of characters is set in is recorded in the file, and its name
+  // says whether it is the bold or the italic cut. That was read off when the page
+  // was rasterised, so there is nothing to wait for and nothing to be unsure
+  // about. A model looking at a picture of the page is right most of the time and
+  // differently right each time it looks; this is simply what the page is.
+  //
+  // The looking is kept for the pages that leave nothing to read: a scan, or an
+  // export that flattened its text into pixels.
+  // What decides is whether the PDF could be READ, not how much it happened to
+  // say. A page whose text layer is perfect and carries no emphasis has answered
+  // the question - with "none" - and sending a run to look at it anyway costs a
+  // call and invites it to find marks the file proves are not there.
+  const fromPdf = asset.styling ?? [];
+  let styling: Promise<StyleFragment[]>;
+
+  if (asset.typography === 'read') {
+    emit({
+      type: 'status',
+      run: 'opmaak uit de PDF',
+      state: 'ok',
+      page,
+      detail: fromPdf.length ? `${fromPdf.length} fragment(en) uit het fontregister` : 'geen opmaak op deze pagina'
+    });
+    emit({ type: 'styling', page, fragments: fromPdf });
+    styling = Promise.resolve(fromPdf);
+  } else {
+    // Why the PDF gave nothing decides whether that is an answer or a gap. Names
+    // like "F1" carry no cut, and a page whose fonts are all named that way is
+    // not a page without emphasis - it is a page whose typography nobody wrote
+    // down. Worth saying out loud: if this never appears, the looking is dead
+    // weight, and if it appears often the fonts themselves are worth judging
+    // once per document instead of the page being read again and again.
+    if (asset.typography === 'unnamed-fonts') {
+      warnings.push('de fonts in deze PDF hebben geen bruikbare namen; de opmaak is van het beeld gelezen');
+    }
+
+    // Started first and awaited last: it needs nothing from run 1, so there is no
+    // reason for the reader to wait for one before the other begins.
+    emit({
+      type: 'status',
+      run: 'run 2 opmaak',
+      state: 'start',
+      page,
+      detail:
+        asset.typography === 'unnamed-fonts'
+          ? 'fonts zonder bruikbare naam'
+          : asset.typography === 'no-text-layer'
+            ? 'geen tekstlaag'
+            : 'pagina van vóór het uitlezen van de PDF'
+    });
+    styling = detectStyling(ctx, page, styleImages(asset))
+      .then((fragments) => {
+        // Sent the moment they arrive, so the interface can set the words as they
+        // stream in rather than restyling the page once it is finished.
+        emit({ type: 'styling', page, fragments });
+        emit({ type: 'status', run: 'run 2 opmaak', state: 'ok', page, detail: `${fragments.length} fragment(en)` });
+        return fragments;
+      })
+      .catch((err: unknown) => {
+        // The page keeps its text; it just comes out unmarked.
+        const message = err instanceof Error ? err.message : String(err);
+        warnings.push(`run 2 opmaak: ${message}`);
+        emit({ type: 'status', run: 'run 2 opmaak', state: 'fail', page, detail: message });
+        return [];
+      });
+  }
 
   // AI run 1, reading order, with inserts, quotes and images in their place.
   emit({ type: 'status', run: 'run 1 leesvolgorde', state: 'start', page });
@@ -221,7 +333,6 @@ async function processPage(job: PageJob): Promise<PageResult> {
   }
 
   const blocks = run1.blocks;
-
   emit({
     type: 'status',
     run: 'run 1 leesvolgorde',
@@ -230,25 +341,20 @@ async function processPage(job: PageJob): Promise<PageResult> {
     detail: `${tally(blocks)}, ${Math.round(check.score * 100)}% woorddekking`
   });
 
-  // AI run 2, typography, and nothing else.
-  emit({ type: 'status', run: 'run 2 styling', state: 'start', page });
-  let patches: Patch[] = [];
-  try {
-    patches = await detectStyling(ctx, page, asset.image, blocks);
-    for (const patch of patches) emit({ type: 'patch', page, patch });
-    emit({ type: 'status', run: 'run 2 styling', state: 'ok', page, detail: `${patches.length} fragment(en)` });
-  } catch (err) {
-    // The page keeps its text; it just misses its italics.
-    const message = err instanceof Error ? err.message : String(err);
-    warnings.push(`styling: ${message}`);
-    emit({ type: 'status', run: 'run 2 styling', state: 'fail', page, detail: message });
+  // The two meet here and nowhere else: what run 2 read off the page is matched
+  // against what run 1 wrote, on the bare letters, and the words run 2 quoted as
+  // coming before it decide which occurrence was meant.
+  const placed = placeFragments(blocks, await styling);
+  for (const patch of placed.patches) emit({ type: 'patch', page, patch });
+  for (const missed of placed.unplaced) {
+    warnings.push(`opmaak: "${clip(missed.text)}" (${missed.style.join('+')}) staat nergens in de pagina zoals run 1 hem schreef`);
   }
 
-  const applied = applyStyles(blocks, patches);
+  const applied = applyStyles(blocks, placed.patches);
   const result: PageResult = {
     page,
     blocks,
-    patches,
+    patches: placed.patches,
     dropped: applied.dropped,
     content: applied.content,
     continuity: {
@@ -292,23 +398,28 @@ function emptyPage(page: number, message: string, isLast: boolean): PageResult {
   };
 }
 
+/**
+ * What the styling runs look at: the page in quarters where the render produced
+ * them, and the whole page for a job that was uploaded before it did.
+ */
+function styleImages(asset: PageAsset): string[] {
+  return asset.tiles?.length ? asset.tiles : [asset.image];
+}
+
+/** An amount, in the notation the interface uses everywhere else. */
+export function money(amount: number): string {
+  return `${env.priceCurrency} ${amount.toFixed(amount < 0.1 ? 4 : amount < 1 ? 3 : 2).replace('.', ',')}`;
+}
+
+function clip(text: string): string {
+  const line = text.replace(/\s+/g, ' ');
+  return line.length > 40 ? `${line.slice(0, 40)}…` : line;
+}
+
 function tailOf(ocr: OcrPage | undefined): string {
   return (ocr?.markdown ?? '').slice(-TAIL);
 }
 
-function blankFrontmatter(): Frontmatter {
-  return {
-    chapeau: null,
-    title: null,
-    subtitle: null,
-    authors: [],
-    photographers: [],
-    illustrators: [],
-    date: null,
-    intro: null,
-    italics: []
-  };
-}
 
 /** The context run 1 carries, so it does not repeat the frontmatter as body text. */
 function describe(fm: Frontmatter): string {

@@ -196,94 +196,243 @@ button.action:disabled { opacity: 0.35; cursor: default; }
 
 .tabs button[data-active='true'] { color: var(--ink); border-bottom-color: var(--ink); }
 
-/* ── The article ─────────────────────────────────────────────────────────── */
+/* ── The article, in Vrhl-Blad's own type ─────────────────────────────────── */
+/* Tokens, type scale and measures copied from Vrhl-Blad-Artikel-Styling.html.
+   The reader has its own paper and ink, so they are pinned here instead of
+   following the converter's light/dark chrome: this pane is a proof of the
+   published page. Lengths are in px on purpose - the converter sets a 13px root
+   and Vrhl-Blad's measures are Tailwind's, which are relative to 16px.
+   Everything is scoped under .reader and leaks into nothing else. */
 
-.article { max-width: 34rem; font-family: var(--serif); }
+.reader {
+  --color-pagina: #f7f6f2;
+  --color-text: #333333;
+  --color-text-400: #615151;
+  --color-brand: #f76840;
+  --color-tag: #ebe2e2;
+  --color-lichte-tag: #ebe8e4;
+  --font-serif: "Merriweather", ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  --font-sans: "Merriweather Sans", ui-sans-serif, system-ui, sans-serif;
+  --column: 896px;
+  --gutter: 48px;
+  --overlay: #f7f6f2;
 
-.article .chapeau {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin: 0 0 1rem;
+  background: var(--color-pagina);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  padding: 24px 0 64px;
+  overflow: hidden;
 }
 
-.article h2 {
-  font-size: clamp(1.9rem, 4vw, 2.6rem);
+/* Hero: 70vh, rounded, the text laid over the foot of the image. */
+.reader-hero {
+  position: relative;
+  height: 70vh;
+  min-height: 420px;
+  margin: 0 16px 48px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--color-tag);
+}
+
+.reader-hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.reader-hero-wash {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0) 100%);
+}
+.reader-hero-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0 0 62px;
+}
+.reader-hero-text > * { max-width: var(--column); margin: 0 auto; width: 100%; padding: 0 var(--gutter); }
+.reader-hero .reader-kicker,
+.reader-hero .reader-title,
+.reader-hero .reader-subtitle { color: var(--overlay); }
+.reader-hero .reader-title { text-shadow: 0 4px 12px rgba(0, 0, 0, 0.45); }
+.reader-hero .reader-kicker,
+.reader-hero .reader-subtitle { text-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
+
+.reader-head { max-width: var(--column); margin: 0 auto 32px; padding: 16px var(--gutter) 0; }
+
+.reader-kicker {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 18px;
+  text-transform: uppercase;
+  margin: 0 0 24px;
+}
+
+.reader-title {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: clamp(28px, 4vw, 60px);
   line-height: 1.1;
+  margin: 0 0 24px;
+}
+
+.reader-subtitle {
+  font-family: var(--font-sans);
+  font-size: 20px;
+  line-height: 1.375;
+  max-width: 768px;
+  margin: 0;
+}
+
+.reader-credits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  max-width: var(--column);
+  margin: 0 auto 40px;
+  padding: 0 var(--gutter);
+}
+
+.reader .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-lichte-tag);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+.reader .pill svg { width: 20px; height: 20px; flex-shrink: 0; }
+
+/* ── Body ─────────────────────────────────────────────────────────────────── */
+
+.reader .article-body {
+  max-width: var(--column);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+  font-family: var(--font-serif);
+  font-size: 20px;
+  line-height: 160%;
+}
+
+.reader .article-content p {
+  font-family: var(--font-serif);
   font-weight: 400;
-  margin: 0 0 0.75rem;
+  font-size: 20px;
+  line-height: 160%;
+  margin: 0 0 24px;
+}
+
+.reader .article-intro p {
+  font-size: 25px;
+  font-weight: 700;
   letter-spacing: -0.01em;
+  line-height: 135%;
+}
+.reader .article-intro p strong { font-family: var(--font-serif); font-weight: 900; }
+
+/* A heading in the body is an h3, and nothing else: 24px sans 700. */
+.reader .article-content h3 {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 24px;
+  line-height: 1.3;
+  letter-spacing: 0;
+  margin: 50px 0 12px;
 }
 
-.article .subtitle { font-size: 1.15rem; line-height: 1.4; color: var(--muted); margin: 0 0 1.5rem; }
-
-.article .byline {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--muted);
-  letter-spacing: 0.04em;
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
-  padding: 0.6rem 0;
-  margin: 0 0 2rem;
-  display: grid;
-  gap: 0.15rem;
+.reader .article-content blockquote {
+  font-family: var(--font-serif);
+  font-weight: 900;
+  font-size: 36px;
+  letter-spacing: -0.02em;
+  line-height: 130%;
+  margin: 50px 0;
+  padding: 0;
+  border: 0;
 }
 
-.article .intro { font-size: 1.1rem; line-height: 1.55; margin: 0 0 2rem; }
+.reader .article-content ul { list-style: disc outside; }
+.reader .article-content ol { list-style: decimal outside; }
+.reader .article-content ul,
+.reader .article-content ol { padding-left: 24px; margin: 24px 0 24px 24px; }
+.reader .article-content li {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 20px;
+  line-height: 160%;
+  margin-bottom: 8px;
+}
+.reader .article-content li:last-child { margin-bottom: 0; }
 
-.article p { font-size: 1rem; line-height: 1.65; margin: 0 0 1.15rem; }
+.reader .article-content strong { font-weight: 700; }
+.reader .article-content a { color: inherit; text-decoration: underline; }
 
-.article h3 {
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  font-weight: 500;
-  margin: 2.5rem 0 1rem;
+/* ── Images: four widths, always within the text column ──────────────────── */
+
+.reader .article-content figure { margin: 32px 0 0; max-width: 100%; }
+.reader .article-content figure > div { width: 100%; max-width: 100%; margin: 0 auto; }
+.reader .article-content figure img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
 }
 
-.article blockquote {
-  margin: 2rem 0;
-  padding: 0 0 0 1.25rem;
-  border-left: 1px solid var(--rule-strong);
-  font-size: 1.25rem;
-  line-height: 1.35;
+/* grootte in MDX; small is half the column, the rest is full width. */
+.reader .article-content .figure-small > div { width: 50%; max-width: min(448px, 100%); }
+.reader .article-content .figure-normal > div,
+.reader .article-content .figure-large > div,
+.reader .article-content .figure-xlarge > div { width: 100%; }
+
+.reader .article-content figcaption {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-style: italic;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--color-text-400);
+  margin: 8px 0 32px;
 }
 
-/* Lifted out of the column, so it gets air and size. A quote earns the rule;
-   a streamer does not need to be boxed in on both sides. */
-.article .streamer {
-  margin: 2.5rem 0;
-  font-size: 1.25rem;
-  line-height: 1.35;
-}
-
-.article figure { margin: 2rem 0; }
-.article figure img { display: block; width: 100%; }
-.article figure .placeholder {
-  border: 1px solid var(--rule);
-  padding: 2rem 1rem;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--faint);
+.reader .placeholder {
+  border: 1px dashed color-mix(in srgb, var(--color-text) 30%, transparent);
+  border-radius: 8px;
+  padding: 32px 16px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--color-text-400);
   text-align: center;
 }
-.article figcaption { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 0.5rem; }
-.article figcaption .credit { color: var(--faint); }
 
-.article .insert {
-  border: 1px solid var(--rule-strong);
-  padding: 1.5rem;
-  margin: 2.5rem 0;
+/* ── Kader: its own colours, not the page's ──────────────────────────────── */
+
+.reader .text-frame-block {
+  border-radius: 8px;
+  padding: 32px 24px;
+  margin: 24px 0;
 }
+.reader .text-frame-block h3,
+.reader .text-frame-block p,
+.reader .text-frame-block li,
+.reader .text-frame-block blockquote,
+.reader .text-frame-block figcaption { color: var(--frame-text-color, inherit); }
+.reader .text-frame-block > *:first-child { margin-top: 0; }
+.reader .text-frame-block > *:last-child { margin-bottom: 0; }
 
-.article .insert > .label { font-family: var(--mono); }
-.article .insert h4 { font-size: 1.1rem; margin: 0 0 0.75rem; font-weight: 500; }
-.article .insert p { font-size: 0.95rem; }
-.article .insert p:last-child { margin-bottom: 0; }
+@media (max-width: 767px) {
+  .reader { --gutter: 24px; }
+  .reader .article-content p,
+  .reader .article-content li { font-size: 16px; }
+  .reader .article-intro p { font-size: 18px; }
+  .reader .article-content h3 { font-size: 16px; }
+  .reader .article-content blockquote { font-size: 24px; }
+  .reader .article-content .figure-small > div { width: 100%; max-width: 100%; }
+}
 
 /* ── Report ──────────────────────────────────────────────────────────────── */
 
@@ -292,6 +441,16 @@ button.action:disabled { opacity: 0.35; cursor: default; }
 .checks .name { color: var(--faint); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
 .checks .score { font-variant-numeric: tabular-nums; }
 .checks .note { color: var(--muted); font-size: 12px; }
+.checks li[data-dropped='true'] { color: var(--faint); }
+.checks li[data-dropped='true'] .note { text-decoration: line-through; }
+/* Marks are named by their witness and measured in styles, not in percentages.
+   Every row is its own grid, so the middle column is fixed rather than sized to
+   content, or the rows would not line up. It holds the widest pair either run can
+   report - the vet run may say bold and underline at once; italic never pairs
+   with underline, because the run that reads the slant reads nothing else. */
+.checks.marks li { grid-template-columns: 7rem 8.5rem 1fr; }
+/* What the run says it saw. A mark you cannot check is not one you can trust. */
+.checks.marks .why { display: block; color: var(--faint); font-style: normal; font-size: 11px; margin-top: 0.2rem; }
 
 .verdict { display: flex; align-items: baseline; gap: 1rem; margin-bottom: 2rem; }
 .verdict strong { font-size: 2rem; font-weight: 400; letter-spacing: -0.02em; }
@@ -313,10 +472,88 @@ pre.json {
   color: var(--muted);
 }
 
+/* The OCR's own markdown, as it came back. */
+pre.json.ocr { color: var(--ink); max-width: 46rem; }
+
+/* Run 2's marks, laid over run 1's text while it is still arriving. */
+.pagetext strong { font-weight: 650; color: var(--ink); }
+.pagetext em { font-style: italic; color: var(--ink); }
+.pagetext u { text-decoration: underline; }
+
+/* The machinery, folded away once the article it built is on screen. */
+.raw { margin-top: 2rem; border-top: 1px solid var(--rule); }
+.raw > summary { display: flex; align-items: baseline; gap: 1rem; padding: 0.9rem 0;
+  cursor: pointer; color: var(--faint); font-size: 10px; letter-spacing: 0.14em;
+  text-transform: uppercase; list-style: none; }
+.raw > summary::-webkit-details-marker { display: none; }
+.raw > summary::before { content: '+'; font-size: 12px; line-height: 1; }
+.raw[open] > summary::before { content: '\2212'; }
+.raw > summary:hover { color: var(--muted); }
+.raw > summary .pulse { margin-left: auto; letter-spacing: 0; text-transform: none; font-size: 11px; }
+
 .empty { color: var(--faint); font-size: 12px; max-width: 32rem; }
 .notice { border: 1px solid var(--flag); color: var(--flag); padding: 0.75rem 1rem; font-size: 12px; margin-bottom: 1.5rem; }
-.thumbs { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-.thumbs img { width: 46px; border: 1px solid var(--rule); display: block; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 1rem; }
+.thumbs .thumb {
+  padding: 0;
+  border: 1px solid var(--rule);
+  background: none;
+  cursor: zoom-in;
+}
+.thumbs .thumb img { width: 46px; display: block; }
+.thumbs .thumb:hover,
+.thumbs .thumb:focus-visible { border-color: var(--ink); }
+
+/* The page as rasterised, on the same paper. Escape, the empty margin, or
+   sluiten puts the converter back. No dim, no motion. */
+.page-peek {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 1.5rem var(--gutter) 2rem;
+  border: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+.page-peek::backdrop { background: var(--paper); }
+.page-peek header,
+.page-peek nav {
+  display: flex;
+  align-items: baseline;
+  gap: 1.5rem;
+  max-width: 72rem;
+  margin: 0 auto;
+}
+.page-peek header { margin-bottom: 1rem; }
+.page-peek header .label { margin: 0; }
+.page-peek header .meta { color: var(--muted); font-size: 11px; margin-right: auto; }
+.page-peek nav { margin-top: 1rem; }
+.page-peek button {
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  background: none;
+  border: 0;
+  color: var(--ink);
+  padding: 0;
+  cursor: pointer;
+}
+.page-peek button:disabled { color: var(--faint); cursor: default; }
+.page-peek img {
+  display: block;
+  max-width: min(100%, 72rem);
+  max-height: calc(100vh - 7rem);
+  width: auto;
+  height: auto;
+  margin: 0 auto;
+  border: 1px solid var(--rule);
+  background: #fff;
+}
 
 /* ── Live stream ─────────────────────────────────────────────────────────── */
 
@@ -336,6 +573,23 @@ pre.json {
 
 .pane header .label { margin: 0; }
 .pane .pulse { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+
+/* The live preview: the reader itself, in one of the live panes. It keeps its
+   own paper, so it reads as the page being built rather than as more chrome. */
+.pane.preview { margin-bottom: 2rem; }
+.pane.preview .reader { border-radius: 3px; }
+
+/* While the runs are going the column shows that it is still being written.
+   Only after a paragraph: a caret hanging under a photo means nothing. */
+.pane.preview[data-running='true'] .article-body > p:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 0.7em;
+  margin-left: 0.2em;
+  background: var(--color-text);
+  vertical-align: -1px;
+}
 
 .pagetext {
   font-family: var(--mono);

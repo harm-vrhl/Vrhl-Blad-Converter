@@ -1,6 +1,8 @@
 'use client';
 
 import { ripImages, type RippedImage } from './images';
+import { readTypography, type TypographySource } from './typography';
+import type { StyleFragment } from '../agents/styling';
 
 export interface RenderedPage {
   page: number;
@@ -8,13 +10,33 @@ export interface RenderedPage {
   height: number;
   image: Blob;
   thumb: Blob;
+  /**
+   * The page in quarters, with a little overlap. The vision API fits every
+   * image it is given to 768px on its short side, so a whole page arrives with
+   * roughly a five pixel x-height - too little to read a slant or a stroke off.
+   * A quarter page spends that same budget on a quarter of the type.
+   */
+  tiles: Blob[];
   previewUrl: string;
   /** The bitmaps embedded in this page, at their own resolution. */
   ripped: RippedImage[];
+  /**
+   * The typography, read out of the PDF's own font table. Empty for a page with
+   * no text layer - a scan, or an export that flattened its text - and then the
+   * run that looks at the page image has to do the work instead.
+   */
+  styling: StyleFragment[];
+  /** Whether that could be read at all, and if not, why not. */
+  typography: TypographySource;
+  /** Every word on the page as the file spells it. */
+  words: string[];
 }
 
-const FULL_MAX = 1800; // enough detail for the vision runs
+const FULL_MAX = 1800; // the page as one image: layout, reading order, images
 const THUMB_MAX = 320; // enough for "what does the neighbouring page look like"
+const TILE_MAX = 2600; // the canvas the tiles are cut from, so each tile is dense
+const TILE_GRID = 2; // 2 x 2 quarters
+const TILE_OVERLAP = 0.08; // a line on a seam stays whole in one of the two
 
 /**
  * Rasterising happens in the browser: pdf.js already lives here and it keeps the
@@ -33,7 +55,7 @@ export async function renderPdf(
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
     const base = page.getViewport({ scale: 1 });
-    const scale = Math.min(3, FULL_MAX / Math.max(base.width, base.height));
+    const scale = Math.min(4, TILE_MAX / Math.max(base.width, base.height));
     const viewport = page.getViewport({ scale });
 
     const canvas = document.createElement('canvas');
@@ -48,19 +70,34 @@ export async function renderPdf(
     // then hang forever if the user looks away mid-document.
     await page.render({ canvasContext: context, viewport, intent: 'print' }).promise;
 
-    const image = await toBlob(canvas, 0.92);
+    const full = downscale(canvas, FULL_MAX);
+    const image = await toBlob(full, 0.92);
     const thumb = await toBlob(downscale(canvas, THUMB_MAX), 0.8);
+    const tiles: Blob[] = [];
+    for (let row = 0; row < TILE_GRID; row++) {
+      for (let col = 0; col < TILE_GRID; col++) {
+        tiles.push(await toBlob(quarter(canvas, col, row), 0.92));
+      }
+    }
     const ripped = await ripImages(pdfjs, page, page.getViewport({ scale: 1 }));
+    // After the render, so the fonts it needed are already loaded and named.
+    const typography = await readTypography(page as never).catch(
+      () => ({ fragments: [], source: 'no-text-layer' as TypographySource, words: [] })
+    );
 
     await onPage(
       {
         page: i,
-        width: canvas.width,
+        width: full.width,
         height: canvas.height,
         image,
         thumb,
+        tiles,
         previewUrl: URL.createObjectURL(thumb),
-        ripped
+        ripped,
+        styling: typography.fragments,
+        typography: typography.source,
+        words: typography.words
       },
       doc.numPages
     );
@@ -68,6 +105,26 @@ export async function renderPdf(
   }
 
   return doc.numPages;
+}
+
+/** One tile of the grid, grown by the overlap on the sides that have room. */
+function quarter(source: HTMLCanvasElement, col: number, row: number): HTMLCanvasElement {
+  const width = source.width / TILE_GRID;
+  const height = source.height / TILE_GRID;
+  const padX = width * TILE_OVERLAP;
+  const padY = height * TILE_OVERLAP;
+  const left = Math.max(0, col * width - padX);
+  const top = Math.max(0, row * height - padY);
+  const right = Math.min(source.width, (col + 1) * width + padX);
+  const bottom = Math.min(source.height, (row + 1) * height + padY);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(right - left);
+  canvas.height = Math.round(bottom - top);
+  canvas
+    .getContext('2d')
+    ?.drawImage(source, left, top, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+  return canvas;
 }
 
 function downscale(source: HTMLCanvasElement, max: number): HTMLCanvasElement {

@@ -1,6 +1,6 @@
 'use client';
 
-import type { ExtractedImage, ImageVerdict, PageResult } from '@/lib/types';
+import type { ExtractedImage, ImageVerdict, PageResult, Patch } from '@/lib/types';
 
 /**
  * The word index is the only judge here: it knows which words the page holds.
@@ -27,7 +27,7 @@ export function Checks({
             <span className="name">Pagina {page.page}</span>
             <span className="score">{Math.round(page.check.score * 100)}%</span>
             <span className="note">
-              {page.blocks.length} alinea&apos;s · {page.patches.length} patches ·{' '}
+              {page.blocks.length} alinea&apos;s · {tally(page.patches)} ·{' '}
               {page.continuity.continuesFromPrevious ? 'loopt door van vorige' : 'nieuwe start'} ·{' '}
               {page.continuity.continuesOnNext ? 'loopt door' : 'sluit af'}
             </span>
@@ -53,6 +53,28 @@ export function Checks({
                 </li>
               );
             })}
+          </ul>
+        </>
+      ) : null}
+
+      {pages.some((p) => p.patches.length) ? (
+        <>
+          <hr className="rule" />
+          <span className="label">Opmaak per fragment</span>
+          <p className="note">{overall(pages)}</p>
+          <ul className="checks marks">
+            {pages.flatMap((page) =>
+              page.patches.map((patch, i) => (
+                <li key={`${page.page}-${i}`} data-dropped={page.dropped.includes(i)}>
+                  <span className="name">p{page.page} {patch.target}</span>
+                  <span className="score">{patch.style.join('+')}</span>
+                  <span className="note">
+                    &ldquo;{clip(patch.find)}&rdquo;
+                    {page.dropped.includes(i) ? ' · niet toegepast' : ''}
+                  </span>
+                </li>
+              ))
+            )}
           </ul>
         </>
       ) : null}
@@ -100,4 +122,23 @@ export function Checks({
       ) : null}
     </section>
   );
+}
+
+/**
+ * Every mark run 2 reported, fragment by fragment. A count alone cannot be read
+ * against the page; this can, which is the point of a check.
+ */
+function tally(patches: Patch[]): string {
+  return patches.length ? `${patches.length} opmaak` : 'geen opmaak';
+}
+
+function overall(pages: PageResult[]): string {
+  const all = pages.flatMap((page) => page.patches);
+  const dropped = pages.reduce((n, page) => n + page.dropped.length, 0);
+  return `${tally(all)}${dropped ? ` · ${dropped} niet toegepast` : ''}`;
+}
+
+function clip(text: string): string {
+  const line = text.replace(/\s+/g, ' ');
+  return line.length > 60 ? `${line.slice(0, 60)}…` : line;
 }

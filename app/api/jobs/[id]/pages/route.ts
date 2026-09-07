@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { loadJob, saveJob, writeArtifact } from '@/lib/store';
 import { pad2 } from '@/lib/util';
-import type { ExtractedImage } from '@/lib/types';
+import type { ExtractedImage, InlineStyle, TypographySource } from '@/lib/types';
+import type { FragmentKind, StyleFragment } from '@/lib/agents/styling';
 
 export const runtime = 'nodejs';
 
@@ -12,6 +13,49 @@ interface RippedMeta {
   areaPct: number;
   dpi: number;
   mime: string;
+}
+
+const STYLES: InlineStyle[] = ['bold', 'italic', 'underline'];
+const KINDS: FragmentKind[] = ['text', 'title', 'streamer'];
+const SOURCES: TypographySource[] = ['read', 'no-text-layer', 'unnamed-fonts'];
+
+/**
+ * What the browser read off the PDF's font table, held to its shape. It arrives
+ * over the wire like everything else, so nothing is taken on trust: a field that
+ * is not what it claims is dropped rather than carried into the article.
+ */
+function readStyling(raw: string): StyleFragment[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .map((entry) => {
+      const f = entry as { text?: unknown; before?: unknown; styles?: unknown; style?: unknown; kind?: unknown };
+      const style = Array.isArray(f.style) ? f.style : Array.isArray(f.styles) ? f.styles : [];
+      return {
+        text: typeof f.text === 'string' ? f.text.trim() : '',
+        before: typeof f.before === 'string' ? f.before.trim() : '',
+        style: style.filter((s): s is InlineStyle => STYLES.includes(s as InlineStyle)),
+        kind: (KINDS.includes(f.kind as FragmentKind) ? f.kind : 'text') as FragmentKind
+      };
+    })
+    .filter((f) => f.text.length > 0 && f.style.length > 0);
+}
+
+/** The page's own words, held to being words. */
+function readWords(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((w): w is string => typeof w === 'string' && w.length > 0).slice(0, 20000);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -35,6 +79,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const imageName = await writeArtifact(id, `page-${pad2(page)}.jpeg`, Buffer.from(await image.arrayBuffer()));
   const thumbName = await writeArtifact(id, `thumb-${pad2(page)}.jpeg`, Buffer.from(await thumb.arrayBuffer()));
 
+  // The quarters the styling runs read, in reading order.
+  const tiles: string[] = [];
+  for (let i = 0; ; i++) {
+    const tile = form.get(`tile${i}`);
+    if (!(tile instanceof File)) break;
+    tiles.push(await writeArtifact(id, `page-${pad2(page)}-t${i + 1}.jpeg`, Buffer.from(await tile.arrayBuffer())));
+  }
+
+  // What the browser read off the PDF's font table. Only the shape is trusted;
+  // anything else in there is dropped rather than carried into the article.
+  const styling = readStyling(String(form.get('styling') ?? '[]'));
+  const words = readWords(String(form.get('words') ?? '[]'));
+  const claimed = String(form.get('typography') ?? '');
+  const typography: TypographySource = SOURCES.includes(claimed as TypographySource)
+    ? (claimed as TypographySource)
+    : 'no-text-layer';
+
   const meta = JSON.parse(String(form.get('ripped') ?? '[]')) as RippedMeta[];
   const ripped: ExtractedImage[] = [];
   for (let i = 0; i < meta.length; i++) {
@@ -57,7 +118,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     });
   }
 
-  job.pages = [...job.pages.filter((p) => p.page !== page), { page, width, height, image: imageName, thumb: thumbName }].sort(
+  job.pages = [
+    ...job.pages.filter((p) => p.page !== page),
+    { page, width, height, image: imageName, thumb: thumbName, tiles, styling, typography, words }
+  ].sort(
     (a, b) => a.page - b.page
   );
   job.images = [...job.images.filter((img) => img.page !== page), ...ripped].sort(
