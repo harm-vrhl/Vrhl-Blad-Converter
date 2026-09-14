@@ -84,6 +84,8 @@ export default function Home() {
   const [notice, setNotice] = useState<string | null>(null);
   /** Het inpakken van het canonieke pakket loopt over de server en duurt even. */
   const [packing, setPacking] = useState(false);
+  /** Idem voor het duwen naar Sanity, dat bovendien beeld uploadt. */
+  const [pushing, setPushing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [tab, setTab] = useState<Tab>("paginas");
   const [renderStep, setRenderStep] = useState<{
@@ -379,6 +381,60 @@ export default function Home() {
       );
     } finally {
       setPacking(false);
+    }
+  }, [job, doc, mdxEdit]);
+
+  /**
+   * Het artikel naar Sanity, als concept.
+   *
+   * Wat hier weggaat is het pakket, niet het artikelobject: de importer leest
+   * hetzelfde formaat dat ook naar MDX of Word gaat. Het schrijven zelf gebeurt
+   * op de server, want het token hoort de browser nooit te zien.
+   */
+  const pushSanity = useCallback(async () => {
+    if (!job || !doc) return;
+    setPushing(true);
+    setNotice(null);
+    try {
+      let current = doc;
+      if (mdxEdit !== null) {
+        try {
+          current = fromMdx(mdxEdit, doc, job.images ?? []);
+        } catch {
+          current = doc;
+        }
+      }
+      const res = await fetch(`/api/jobs/${job.id}/sanity`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ document: current }),
+      });
+      const body = (await res.json()) as {
+        documents?: unknown[];
+        created?: string[];
+        uploaded?: number;
+        warnings?: string[];
+        error?: string;
+        detail?: string;
+      };
+      if (!res.ok) throw new Error(body.detail ? `${body.error} (${body.detail})` : (body.error ?? `fout ${res.status}`));
+
+      const deel = [
+        `${body.documents?.length ?? 0} document(en) als concept weggeschreven`,
+        body.uploaded ? `${body.uploaded} afbeelding(en) geupload` : null,
+        body.created?.length ? `nieuw aangemaakt: ${body.created.join(", ")}` : null,
+      ].filter(Boolean);
+      setNotice(
+        `Naar Sanity: ${deel.join(" · ")}.${
+          body.warnings?.length ? ` Let op: ${body.warnings.join(" · ")}` : ""
+        }`,
+      );
+    } catch (err) {
+      setNotice(
+        `Het duwen naar Sanity is niet gelukt: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setPushing(false);
     }
   }, [job, doc, mdxEdit]);
 
@@ -707,6 +763,18 @@ export default function Home() {
                   >
                     {packing ? "Inpakken…" : "Download pakket"}
                   </button>
+                  <button
+                    className="action"
+                    disabled={pushing || !settings?.sanity?.ready}
+                    title={
+                      settings?.sanity?.ready
+                        ? `Als concept naar ${settings.sanity.projectId} · ${settings.sanity.dataset}`
+                        : "Vul NEXT_PUBLIC_SANITY_PROJECT_ID, NEXT_PUBLIC_SANITY_DATASET en SANITY_API_TOKEN in .env.local"
+                    }
+                    onClick={() => void pushSanity()}
+                  >
+                    {pushing ? "Versturen…" : "Push naar Sanity"}
+                  </button>
                 </>
               ) : null}
             </div>
@@ -788,6 +856,8 @@ interface Settings {
   currency: string;
   provider: Provider;
   providers: Array<{ id: Provider; label: string; model: string; ready: boolean; limit: number | null }>;
+  /** Of deze installatie naar Sanity kan schrijven, en waarheen. */
+  sanity?: { ready: boolean; projectId: string | null; dataset: string | null };
 }
 
 const PROVIDER_KEY = "vrhl.provider";

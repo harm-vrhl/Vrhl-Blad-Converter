@@ -107,8 +107,30 @@ export const env = {
   },
   get dataDir() {
     return str('DATA_DIR', '.data');
+  },
+
+  // ─── Sanity ────────────────────────────────────────────────────────────────
+  // De namen komen uit canonical/sanity/opslagvorm.json, zodat deze kant dezelfde
+  // variabelen leest als de site zelf.
+  get sanityProjectId() {
+    return str('NEXT_PUBLIC_SANITY_PROJECT_ID', '');
+  },
+  get sanityDataset() {
+    return str('NEXT_PUBLIC_SANITY_DATASET', 'production');
+  },
+  get sanityApiVersion() {
+    return str('SANITY_API_VERSION', '2024-01-01');
+  },
+  /** Schrijftoken. Verlaat de server nooit; de interface hoort alleen of hij er is. */
+  get sanityToken() {
+    return str('SANITY_API_TOKEN', '');
   }
 };
+
+/** Of er genoeg is ingevuld om naar Sanity te kunnen schrijven. */
+export function sanityReady(): boolean {
+  return Boolean(env.sanityProjectId && env.sanityDataset && env.sanityToken);
+}
 
 /** The model and the list price a provider bills at, per million tokens. */
 export function modelFor(provider: Provider): { model: string; input: number; output: number } {

@@ -93,6 +93,17 @@ export interface Asset {
   bron?: Bron;
 }
 
+/**
+ * Alleen nodig als de producent de slug van een tag zelf wil bepalen. Deze
+ * converter levert ze niet, want uit een PDF komen geen tags; het formaat kent
+ * ze wel, en dit bestand beschrijft het formaat en niet alleen wat wij ervan
+ * gebruiken.
+ */
+export interface Tag {
+  naam: string;
+  slug?: string;
+}
+
 export type Datum =
   | string
   | { precisie: 'dagMaandJaar' | 'maandJaar' | 'maand'; dag?: number; maand: number; jaar?: number };
@@ -128,6 +139,7 @@ export interface Pakket {
   gegenereerdOp?: string;
   bron?: Bron;
   assets?: Asset[];
+  tags?: Tag[];
   artikelen?: Artikel[];
 }
 

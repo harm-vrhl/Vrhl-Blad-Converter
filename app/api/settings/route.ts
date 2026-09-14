@@ -1,4 +1,4 @@
-import { env, modelFor } from '@/lib/env';
+import { env, modelFor, sanityReady } from '@/lib/env';
 import { mistralLimit } from '@/lib/llm/chat';
 
 export const runtime = 'nodejs';
@@ -23,6 +23,13 @@ export async function GET() {
         // Only known once Mistral has answered a chat call; null until then.
         limit: mistralLimit()
       }
-    ]
+    ],
+    // Whether this installation can push to Sanity. The token itself stays here;
+    // the interface only learns that one is present, and where it would write.
+    sanity: {
+      ready: sanityReady(),
+      projectId: env.sanityProjectId || null,
+      dataset: env.sanityDataset || null
+    }
   });
 }

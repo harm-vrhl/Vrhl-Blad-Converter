@@ -243,3 +243,42 @@ Wat de converter meestuurt en waarom het er staat:
 Wat de PDF niet kan weten (tags, editie, SEO, video) blijft weg in plaats van
 verzonnen te worden. Alt-teksten ook: staat er geen bijschrift bij het beeld, dan
 komt er geen alt, en meldt de validator dat als waarschuwing.
+
+## Naar Sanity
+
+*Push naar Sanity* zet het pakket als **concept** in het CMS. Concept, altijd:
+deze converter zet `publicatie.klaar` nooit op `true`, dus een import kan niet
+meteen live staan. De redactie publiceert zelf.
+
+Vul hiervoor drie dingen in `.env.local`:
+
+```
+NEXT_PUBLIC_SANITY_PROJECT_ID=
+NEXT_PUBLIC_SANITY_DATASET=production
+SANITY_API_TOKEN=
+```
+
+Het token heeft schrijfrechten nodig en blijft op de server; de interface hoort
+alleen of er een token is. Zonder deze drie werkt de converter gewoon door en
+blijft alleen de knop uit.
+
+Wat de import doet, in de volgorde die `canonical/sanity/mapping.json`
+voorschrijft: eerst het beeld uploaden, dan auteurs, fotografen, illustratoren en
+tags op naam opzoeken en aanmaken als ze er nog niet zijn, en pas daarna het
+artikel schrijven. Het document-id wordt afgeleid uit de `externeId`, dus een
+tweede run werkt hetzelfde concept bij in plaats van er een tweede naast te
+zetten.
+
+### Eerst kijken, dan pas duwen
+
+Er is een droogloop die niets verstuurt en geen token nodig heeft. Die rekent
+alleen uit wat er geschreven zou worden, zodat je het kunt nakijken met de
+validator van de opslagvorm zelf:
+
+```bash
+curl -s -X POST "http://localhost:3210/api/jobs/<job-id>/sanity?dryRun=1&bare=1" > documenten.json
+node canonical/sanity/validate.mjs documenten.json
+```
+
+De afbeeldingsverwijzingen zijn in een droogloop nog niet echt, want er is niets
+geupload; de rest van de vorm is wel precies wat er anders naar Sanity zou gaan.

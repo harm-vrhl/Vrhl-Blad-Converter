@@ -111,6 +111,11 @@ lib/zip.ts            pakket.json plus het beeld als ZIP, zonder dependency
 lib/mdx.ts            schrijft MDX, en leest daarvoor het PAKKET, niet het
                       artikelobject: het pakket is de bron, MDX een consument
 lib/frommdx.ts        leest de bewerkte MDX terug naar een artikelobject
+lib/sanity/client.ts  de drie endpoints van Sanity, met fetch en zonder SDK
+lib/sanity/documents.ts  pakket -> Sanity-documenten. Rekenen, geen I/O, zodat
+                      het te controleren is zonder iets te versturen
+lib/sanity/push.ts    de importstappen op volgorde: assets, credits en tags
+                      opzoeken of aanmaken, dan pas schrijven
 lib/cleanup.ts        afbreekstreepjes, regelafbrekingen, whitespace
 lib/imagefilter.ts    de regels die strepen en ornamenten meteen wegzetten
 lib/client/render.ts  rasteriseren in de browser
