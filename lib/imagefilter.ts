@@ -18,6 +18,12 @@ export function printedSize(image: ExtractedImage): ImageSize {
  * three-pixel spacer is not a judgement call, so it never needs to reach a model.
  */
 export function obviouslyDecorative(image: ExtractedImage): string | null {
+  // A shard of a sliced picture is never placed on its own: the whole is, or nothing.
+  if (image.partOf === 'tekst') {
+    return 'stuk van een opgeknipt beeld; samenvoegen zou een tekstkader meenemen, dus weggelaten';
+  }
+  if (image.partOf) return `stuk van een opgeknipt beeld, samengevoegd tot ${image.partOf}`;
+
   if (image.width < 20 || image.height < 20) {
     return `bitmap van ${image.width}x${image.height} pixels, te klein om inhoud te zijn`;
   }

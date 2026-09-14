@@ -1,10 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { cn } from "cn";
+import { ArrowLeft, FileCode, FileJson, Loader2, Package, UploadCloud } from "lucide-react";
 import { ArticleView } from "@/components/ArticleView";
 import { Checks } from "@/components/Checks";
+import { MagazineView } from "@/components/MagazineView";
 import { PageThumbs } from "@/components/PageThumbs";
-import { renderPdf, type RenderStep } from "@/lib/client/render";
+import { ProviderSwitch } from "@/components/ProviderSwitch";
+import { QuietToolbar, ToolbarButton, ToolbarRule } from "@/components/QuietToolbar";
+import { SegmentedControl } from "@/components/SegmentedControl";
+import { Workflow, type WorkflowStep } from "@/components/Workflow";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+// Geen Tooltip hier met opzet: de hints bij de schakelaar en de Sanity-knop zijn
+// juist nodig als die knoppen uit staan, en een tooltip krijgt op een disabled
+// element geen pointer-events. Het native title-attribuut wel.
+import { streamRun, uploadArticle } from "@/lib/client/article";
+import type { RenderStep } from "@/lib/client/render";
 import { blankFrontmatter, compileArticle } from "@/lib/compile";
 import { toPackage } from "@/lib/canonical";
 import { toMdx } from "@/lib/mdx";
@@ -26,12 +40,7 @@ import type {
 type Phase = "idle" | "rendering" | "ready" | "running" | "done" | "error";
 type Tab = "paginas" | "artikel" | "mdx" | "checks";
 
-interface Step {
-  key: string;
-  label: string;
-  state: "wacht" | "bezig" | "klaar" | "fout";
-  detail: string;
-}
+type Step = WorkflowStep;
 
 /** What each run is called while it is still going. */
 const BUSY: Record<string, string> = {
@@ -93,12 +102,25 @@ export default function Home() {
     total: number;
     step: RenderStep | "uploaden";
   } | null>(null);
-  const uploadDisabled = phase === "rendering" || phase === "running";
+  /**
+   * Eén artikel-PDF, zoals altijd, of een volledig magazine waarin eerst gezocht
+   * wordt waar de artikelen staan. Het magazine blijft gemonteerd zodra het een
+   * keer open is geweest, zodat de lijst er nog staat als je van een omgezet
+   * artikel terugkomt.
+   */
+  const [mode, setMode] = useState<Mode>("artikel");
+  const [magazineOpened, setMagazineOpened] = useState(false);
+  /** In magazinestand: kijk je naar de lijst of naar een artikel eruit? */
+  const [view, setView] = useState<"magazine" | "artikel">("magazine");
+  /** Of het magazine op de achtergrond artikelen aan het omzetten is. */
+  const [converting, setConverting] = useState(false);
+  const uploadDisabled = phase === "rendering" || phase === "running" || converting;
+  const showMagazine = mode === "magazine" && view === "magazine";
 
-  const accept = useCallback(async (file: File) => {
+  const accept = useCallback(async (file: File, opening?: number): Promise<Job | null> => {
     if (!file.name.toLowerCase().endsWith(".pdf")) {
       setNotice("Alleen PDF-bestanden.");
-      return;
+      return null;
     }
     setPhase("rendering");
     setNotice(null);
@@ -118,86 +140,25 @@ export default function Home() {
     setTab("paginas");
 
     try {
-      // The page count is only known once pdf.js opens the file, so the job is
-      // created while the first page is being rendered.
-      let current: Job | null = null;
-      await renderPdf(
-        file,
-        async (rendered, total) => {
-        if (!current) {
-          const form = new FormData();
-          form.set("file", file);
-          form.set("pageCount", String(total));
-          const res = await fetch("/api/jobs", { method: "POST", body: form });
-          const body = (await res.json()) as {
-            job: Job;
-            missingKeys: string[];
-            error?: string;
-          };
-          if (!res.ok) throw new Error(body.error ?? "upload mislukt");
-          current = body.job;
-          setJob(body.job);
-          if (body.missingKeys.length)
-            setNotice(
-              `Ontbrekende sleutels in .env.local: ${body.missingKeys.join(", ")}`,
-            );
-        }
-        setRenderStep({ page: rendered.page, total, step: "uploaden" });
-        const form = new FormData();
-        form.set("page", String(rendered.page));
-        form.set("width", String(rendered.width));
-        form.set("height", String(rendered.height));
-        form.set("image", rendered.image, `page-${rendered.page}.jpeg`);
-        form.set("thumb", rendered.thumb, `thumb-${rendered.page}.jpeg`);
-        // The bitmaps ripped out of this page travel with it.
-        form.set(
-          "ripped",
-          JSON.stringify(
-            rendered.ripped.map((r) => ({
-              width: r.width,
-              height: r.height,
-              placed: r.placed,
-              areaPct: r.areaPct,
-              dpi: r.dpi,
-              mime: r.mime,
-            })),
-          ),
-        );
-        // The PDF's own record of what is bold and what is italic.
-        form.set("styling", JSON.stringify(rendered.styling));
-        form.set("typography", rendered.typography);
-        form.set("words", JSON.stringify(rendered.words));
-        rendered.tiles.forEach((tile, i) => {
-          form.set(`tile${i}`, tile, `tile-${i}.jpeg`);
-        });
-        rendered.ripped.forEach((r, i) => {
-          const ext = r.mime === "image/png" ? "png" : "jpeg";
-          form.set(`rip${i}`, r.full, `rip-${i}.${ext}`);
-          form.set(`ripThumb${i}`, r.thumb, `rip-${i}-thumb.${ext}`);
-        });
-        const res = await fetch(`/api/jobs/${current.id}/pages`, {
-          method: "POST",
-          body: form,
-          signal: AbortSignal.timeout(120_000),
-        });
-        if (!res.ok)
-          throw new Error(`pagina ${rendered.page} kon niet worden opgeslagen`);
-        setThumbs((prev) => [...prev, rendered.previewUrl]);
-      },
-        (page, total, step) => setRenderStep({ page, total, step }),
-      );
-      // The ripped bitmaps are added per page on the server, so pick the job up
-      // again once every page has landed.
-      if (current) {
-        const res = await fetch(`/api/jobs/${(current as Job).id}`);
-        if (res.ok) setJob((await res.json()) as Job);
-      }
+      const landed = await uploadArticle(file, {
+        opening,
+        onJob: (created, missingKeys) => {
+          setJob(created);
+          if (missingKeys.length)
+            setNotice(`Ontbrekende sleutels in .env.local: ${missingKeys.join(", ")}`);
+        },
+        onPage: (rendered) => setThumbs((prev) => [...prev, rendered.previewUrl]),
+        onStep: (page, total, step) => setRenderStep({ page, total, step }),
+      });
+      setJob(landed);
       setRenderStep(null);
       setPhase("ready");
+      return landed;
     } catch (err) {
       setRenderStep(null);
       setNotice(err instanceof Error ? err.message : String(err));
       setPhase("error");
+      return null;
     }
   }, []);
 
@@ -226,8 +187,11 @@ export default function Home() {
     };
   }, []);
 
-  const convert = useCallback(async () => {
-    if (!job) return;
+  /** Resolves true when the run reached its end with an article. */
+  const convert = useCallback(async (target?: Job): Promise<boolean> => {
+    const run = target ?? job;
+    if (!run) return false;
+    let finished = false;
     setPhase("running");
     setStatus([]);
     setTotals(null);
@@ -241,30 +205,11 @@ export default function Home() {
     setTab("artikel");
 
     try {
-      const res = await fetch(`/api/jobs/${job.id}/run`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ provider }),
-      });
-      if (!res.body) throw new Error("geen stream ontvangen");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split("\n\n");
-        buffer = chunks.pop() ?? "";
-        for (const chunk of chunks) {
-          const line = chunk.replace(/^data: ?/, "").trim();
-          if (line) handle(JSON.parse(line) as RunEvent);
-        }
-      }
+      finished = await streamRun(run.id, provider, handle);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : String(err));
       setPhase("error");
+      finished = false;
     }
 
     // A run is where the provider's limits are learned; pick them up afterwards
@@ -336,7 +281,70 @@ export default function Home() {
           break;
       }
     }
+    return finished;
   }, [job, provider]);
+
+  /** Een eerder omgezet artikel terug in beeld, uit wat de run heeft opgeslagen. */
+  const openJob = useCallback(async (jobId: string) => {
+    try {
+      const res = await fetch(`/api/jobs/${jobId}`);
+      if (!res.ok) throw new Error("dit artikel is niet meer te vinden");
+      const loaded = (await res.json()) as Job;
+      const saved = await fetch(`/api/jobs/${jobId}/artifact/pages.json`)
+        .then((r) => (r.ok ? (r.json() as Promise<PageResult[]>) : []))
+        .catch(() => [] as PageResult[]);
+      const triage = await fetch(`/api/jobs/${jobId}/artifact/images.json`)
+        .then((r) =>
+          r.ok
+            ? (r.json() as Promise<{ verdicts?: ImageVerdict[]; rejected?: Record<string, string> }>)
+            : null,
+        )
+        .catch(() => null);
+      const verdictList = triage?.verdicts ?? [];
+      for (const [id, reason] of Object.entries(triage?.rejected ?? {})) {
+        if (!verdictList.some((v) => v.id === id)) verdictList.push({ id, keep: false, kind: "ornament", reason });
+      }
+
+      setStatus([]);
+      setTotals(null);
+      setMdxEdit(null);
+      setText({});
+      setPatches({});
+      setFragments({});
+      setNotice(null);
+      setRenderStep(null);
+      setJob(loaded);
+      setThumbs(loaded.pages.map((p) => `/api/jobs/${jobId}/artifact/${p.thumb}`));
+      setResults(Object.fromEntries(saved.map((p) => [p.page, p])));
+      setVerdicts(verdictList);
+      setFrontmatter(loaded.document?.frontmatter ?? null);
+      setDoc(loaded.document);
+      setPhase(loaded.document ? "done" : "ready");
+      setTab(loaded.document ? "artikel" : "paginas");
+      setView("artikel");
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  const modeSwitch = (
+    <SegmentedControl
+      aria-label="Soort PDF"
+      value={mode}
+      disabled={uploadDisabled}
+      onChange={(next) => {
+        setMode(next);
+        if (next === "magazine") {
+          setMagazineOpened(true);
+          setView("magazine");
+        }
+      }}
+      options={[
+        { id: "artikel", label: "Eén artikel" },
+        { id: "magazine", label: "Volledig magazine" },
+      ]}
+    />
+  );
 
 
   /**
@@ -491,15 +499,27 @@ export default function Home() {
     const last = (run: string, page?: number) =>
       [...status].reverse().find((l) => l.run === run && (page === undefined || l.page === page));
 
-    const stage = (key: string, label: string, run: string, detail?: string): Step => {
+    const stage = (
+      key: string,
+      label: string,
+      run: string,
+      kind: Step["kind"] = "stage",
+      detail?: string,
+    ): Step => {
       const seen = last(run);
-      if (!seen) return { key, label, state: "wacht", detail: "" };
+      if (!seen) return { key, label, state: "wacht", detail: "", kind };
       return {
         key,
         label,
+        kind,
         state: seen.state === "fail" ? "fout" : seen.state === "ok" ? "klaar" : "bezig",
         detail: detail ?? seen.detail ?? "",
       };
+    };
+
+    const runState = (line?: StatusLine): Step["state"] | undefined => {
+      if (!line) return undefined;
+      return line.state === "fail" ? "fout" : line.state === "ok" ? "klaar" : "bezig";
     };
 
     const out: Step[] = [
@@ -517,6 +537,8 @@ export default function Home() {
       out.push({
         key: `p${page}`,
         label: `Pagina ${page}`,
+        kind: "page",
+        page,
         state: failed ? "fout" : done ? "klaar" : busy ? "bezig" : "wacht",
         detail: failed
           ? (failed.detail ?? "mislukt")
@@ -525,10 +547,16 @@ export default function Home() {
             : busy
               ? BUSY[busy.run] ?? busy.run
               : "",
+        textRun: runState(last("run 1 leesvolgorde", page)),
+        styleRun: runState(
+          last("run 2 opmaak", page) ?? last("opmaak uit de PDF", page),
+        ),
+        coverage: done ? Math.round(done.check.score * 100) : undefined,
+        unknown: done?.check.unknown.length ? done.check.unknown : undefined,
       });
     }
 
-    out.push(stage("klaar", "Samenvoegen", "compileren"));
+    out.push(stage("klaar", "Samenvoegen", "compileren", "compile"));
     return out;
   }, [status, results, job]);
 
@@ -578,79 +606,92 @@ export default function Home() {
   }, [doc, mdxEdit, frontmatter, pageResults, results, text, patches, fragments, approved, job]);
 
   const idle = !job && phase !== "rendering";
+  const noticeOk = !!notice && notice.startsWith("Naar Sanity");
 
   return (
-    <div className="frame">
-      <header className="masthead">
-        <h1>Vrhl · Blad Converter</h1>
-        {job ? (
-          <div className="mast-actions">
-            <span className="mast-meta">
-              {job.filename}
-              {" · "}
-              {phase === "rendering"
-                ? renderStep
-                  ? `${renderStep.page}/${renderStep.total} · ${renderStep.step}`
-                  : `${thumbs.length}/${job.pageCount} klaar`
-                : `${job.pageCount} pagina's`}
-            </span>
-            <label
-              className="quiet"
-              htmlFor={uploadDisabled ? undefined : "pdf-upload"}
-              aria-disabled={uploadDisabled}
-            >
-              Andere PDF
-            </label>
-            {settings ? (
-              <div className="provider" role="radiogroup" aria-label="Taalmodel">
-                {settings.providers.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={provider === p.id}
-                    data-active={provider === p.id}
-                    disabled={!p.ready || p.limit === 0 || phase === "running"}
-                    title={
-                      !p.ready
-                        ? `geen sleutel voor ${p.label}`
-                        : p.limit === 0
-                          ? `${p.label} staat op 0 requests per minuut; zet een limiet aan op admin.mistral.ai/plateforme/limits`
-                          : p.limit
-                            ? `${p.model} · ${p.limit} requests per minuut`
-                            : p.model
-                    }
-                    onClick={() => {
-                      setProvider(p.id);
-                      try {
-                        window.localStorage.setItem(PROVIDER_KEY, p.id);
-                      } catch {
-                        /* a remembered choice is a convenience, not a need */
-                      }
-                    }}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
+    <div className="flex h-svh flex-col overflow-hidden">
+      <header className="z-20 shrink-0 border-b bg-white/80 backdrop-blur-md">
+        <div className="flex h-14 items-center justify-between gap-4 px-6">
+          <h1 className="flex items-baseline gap-2 text-sm tracking-tight">
+            <span className="font-semibold">Vrhl</span>
+            <span className="text-muted-foreground">Blad</span>
+          </h1>
+          <div className="flex min-w-0 items-center justify-end gap-2">
+            {mode === "magazine" && view === "artikel" ? (
+              <Button variant="ghost" size="sm" onClick={() => setView("magazine")}>
+                <ArrowLeft />
+                Magazine
+              </Button>
             ) : null}
-            <button
-              className="action"
-              disabled={
-                phase !== "ready" && phase !== "done" && phase !== "error"
-              }
-              onClick={() => void convert()}
-            >
-              {phase === "running" ? "Bezig…" : "Convert"}
-            </button>
+            {job && !showMagazine ? (
+              <>
+                <span className="hidden max-w-xs truncate text-xs text-muted-foreground sm:inline">
+                  {job.filename}
+                  {" · "}
+                  {phase === "rendering"
+                    ? renderStep
+                      ? `${renderStep.page}/${renderStep.total} · ${renderStep.step}`
+                      : `${thumbs.length}/${job.pageCount} klaar`
+                    : `${job.pageCount} pagina's`}
+                </span>
+                {uploadDisabled || mode === "magazine" ? (
+                  mode === "magazine" ? null : (
+                    <span className="px-2.5 text-sm text-muted-foreground/50">
+                      Andere PDF
+                    </span>
+                  )
+                ) : (
+                  <Button variant="ghost" size="sm" asChild>
+                    <label htmlFor="pdf-upload" className="cursor-pointer">
+                      Andere PDF
+                    </label>
+                  </Button>
+                )}
+              </>
+            ) : null}
+            {settings ? (
+              <ProviderSwitch
+                providers={settings.providers}
+                value={provider}
+                disabled={phase === "running" || converting}
+                onChange={(id) => {
+                  setProvider(id);
+                  try {
+                    window.localStorage.setItem(PROVIDER_KEY, id);
+                  } catch {
+                    /* a remembered choice is a convenience, not a need */
+                  }
+                }}
+              />
+            ) : null}
+            {job && !showMagazine ? (
+              <Button
+                variant="brand"
+                disabled={
+                  converting ||
+                  (phase !== "ready" && phase !== "done" && phase !== "error")
+                }
+                onClick={() => void convert()}
+              >
+                {phase === "running" ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    Bezig…
+                  </>
+                ) : (
+                  "Convert"
+                )}
+              </Button>
+            ) : null}
           </div>
-        ) : null}
+        </div>
       </header>
 
       <input
         id="pdf-upload"
-        className="file-input"
+        className="sr-only"
         type="file"
+        accept=".pdf,application/pdf"
         disabled={uploadDisabled}
         onChange={(e) => {
           const file = e.target.files?.[0];
@@ -659,112 +700,175 @@ export default function Home() {
         }}
       />
 
-      {notice ? <p className="notice">{notice}</p> : null}
+      {magazineOpened ? (
+        <div hidden={!showMagazine} className="flex min-h-0 flex-1 flex-col">
+          <MagazineView
+            provider={provider}
+            modeSwitch={modeSwitch}
+            concurrency={settings?.articleConcurrency ?? 3}
+            onBusyChange={setConverting}
+            onOpen={(jobId) => void openJob(jobId)}
+          />
+        </div>
+      ) : null}
 
-      {idle || (phase === "rendering" && !job) ? (
-        <div
-          className="landing"
-          onDragOver={(e) => {
-            e.preventDefault();
-            if (phase === "rendering") return;
-            setDragging(true);
-          }}
-          onDragLeave={(e) => {
-            if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-            setDragging(false);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            if (phase === "rendering") return;
-            const file = e.dataTransfer.files[0];
-            if (file) void accept(file);
-          }}
-        >
+      {showMagazine ? null : idle || (phase === "rendering" && !job) ? (
+        <div className="mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col items-center justify-center px-6 py-16">
+          <h2 className="text-center text-3xl font-semibold tracking-tight">
+            Wat zullen we omzetten?
+          </h2>
+          <p className="mt-2 text-center text-sm text-muted-foreground">
+            Een magazine-PDF. Kolommen, kaders en foto&apos;s worden één artikel.
+          </p>
+          {mode === "artikel" ? <div className="mt-6">{modeSwitch}</div> : null}
+          {notice ? (
+            <Alert
+              variant={noticeOk ? "default" : "destructive"}
+              className="mt-8 w-full"
+            >
+              <AlertDescription>{notice}</AlertDescription>
+            </Alert>
+          ) : null}
           <label
-            className="dropzone"
             htmlFor={phase === "rendering" ? undefined : "pdf-upload"}
-            data-active={dragging}
             aria-disabled={phase === "rendering"}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (phase === "rendering") return;
+              setDragging(true);
+            }}
+            onDragLeave={(e) => {
+              if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+              setDragging(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              if (phase === "rendering") return;
+              const file = e.dataTransfer.files[0];
+              if (file) void accept(file);
+            }}
+            className={cn(
+              "mt-10 flex min-h-64 w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-8 py-12 text-center transition-colors",
+              phase === "rendering"
+                ? "cursor-default border-border bg-muted/30 text-muted-foreground"
+                : dragging
+                  ? "cursor-copy border-foreground bg-muted text-foreground"
+                  : "cursor-pointer border-muted-foreground/30 bg-card/60 text-muted-foreground hover:border-muted-foreground/55 hover:bg-muted/50",
+            )}
           >
-            {phase === "rendering"
-              ? "Pagina's renderen…"
-              : "Leg hier een PDF neer"}
+            <span
+              className={cn(
+                "flex size-14 items-center justify-center rounded-full",
+                dragging ? "bg-foreground/10" : "bg-muted",
+              )}
+            >
+              {phase === "rendering" ? (
+                <Loader2 className="size-6 animate-spin" />
+              ) : (
+                <UploadCloud className="size-6" />
+              )}
+            </span>
+            <span className="grid gap-1">
+              <span className="text-sm font-medium text-foreground">
+                {phase === "rendering"
+                  ? "Pagina's renderen…"
+                  : dragging
+                    ? "Laat los om te beginnen"
+                    : "Sleep je PDF hierheen"}
+              </span>
+              <span className="text-xs">
+                {phase === "rendering"
+                  ? renderStep
+                    ? `${renderStep.page}/${renderStep.total} · ${renderStep.step}`
+                    : "pdf.js leest het bestand"
+                  : "of klik om een bestand te kiezen"}
+              </span>
+            </span>
+            {phase === "rendering" ? null : (
+              <span className="rounded-md border bg-background px-2 py-0.5 text-[11px] font-medium tracking-wide">
+                PDF
+              </span>
+            )}
           </label>
         </div>
       ) : (
-        <div className="work">
-          {status.length ? (
-            <ol className="steps">
-              {steps.map((step) => (
-                <li key={step.key} data-state={step.state}>
-                  <span className="dot" aria-hidden />
-                  <span className="what">{step.label}</span>
-                  <span className="how">{step.detail}</span>
-                </li>
-              ))}
-            </ol>
-          ) : null}
+        <div className="flex min-h-0 flex-1">
+          <aside
+            className="flex min-h-0 w-96 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar"
+            aria-label="Omzetten"
+          >
+            <Workflow
+              steps={steps}
+              totals={totals}
+              phase={phase}
+              thumbs={thumbs}
+              jobId={job?.id ?? null}
+              frontmatter={frontmatter}
+              verdicts={verdicts}
+              images={job?.images ?? []}
+              text={text}
+            />
+          </aside>
 
-          {totals ? (
-            <dl className="kv total">
-              <dt>Tijd</dt>
-              <dd>{duration(totals.ms)}</dd>
-              <dt>Tokens</dt>
-              <dd>
-                {totals.tokens.toLocaleString("nl-NL")}
-                <span className="aside"> in {totals.runs} runs</span>
-              </dd>
-              {totals.cost ? (
-                <>
-                  <dt>Kosten</dt>
-                  <dd>
-                    {money(totals.cost.total, totals.cost.currency)}
-                    <span className="aside">
-                      {" "}
-                      {money(totals.cost.ai, totals.cost.currency)} model +{" "}
-                      {money(totals.cost.ocr, totals.cost.currency)} OCR
-                    </span>
-                  </dd>
-                </>
-              ) : null}
-            </dl>
+          <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain px-6 pt-8 pb-24">
+          {notice ? (
+            <Alert
+              variant={noticeOk ? "default" : "destructive"}
+              className="mb-6 max-w-2xl"
+            >
+              <AlertDescription>{notice}</AlertDescription>
+            </Alert>
           ) : null}
 
           {status.length || totals || phase === "running" || phase === "done" ? (
-            <div className="tabs">
-              {(["paginas", "artikel", "mdx", "checks"] as Tab[]).map((t) => (
-                <button
-                  key={t}
-                  data-active={tab === t}
-                  onClick={() => setTab(t)}
-                  disabled={ALWAYS.includes(t) ? false : !doc}
-                >
-                  {LABELS[t]}
-                </button>
-              ))}
-              <span style={{ flex: 1 }} />
+            <div className="mb-8 flex flex-wrap items-center gap-2">
+              <SegmentedControl
+                aria-label="Weergave"
+                value={tab}
+                onChange={(next) => setTab(next)}
+                options={(["paginas", "artikel", "mdx", "checks"] as Tab[]).map(
+                  (t) => ({
+                    id: t,
+                    label: LABELS[t],
+                    disabled: ALWAYS.includes(t) ? false : !doc,
+                  }),
+                )}
+              />
+              <span className="flex-1" />
               {doc ? (
-                <>
-                  <button
+                <QuietToolbar aria-label="Exporteren">
+                  <ToolbarButton
+                    type="button"
                     onClick={() =>
                       download("artikel.json", JSON.stringify(doc, null, 2))
                     }
                   >
-                    Download JSON
-                  </button>
-                  <button onClick={() => download("artikel.mdx", mdxEdit ?? mdx)}>
-                    Download MDX
-                  </button>
-                  <button
-                    className="action"
+                    <FileJson className="size-3.5" />
+                    JSON
+                  </ToolbarButton>
+                  <ToolbarButton
+                    type="button"
+                    onClick={() => download("artikel.mdx", mdxEdit ?? mdx)}
+                  >
+                    <FileCode className="size-3.5" />
+                    MDX
+                  </ToolbarButton>
+                  <ToolbarButton
+                    type="button"
                     disabled={packing}
                     onClick={() => void downloadPackage()}
                   >
-                    {packing ? "Inpakken…" : "Download pakket"}
-                  </button>
-                  <button
-                    className="action"
+                    {packing ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Package className="size-3.5" />
+                    )}
+                    {packing ? "Inpakken…" : "Pakket"}
+                  </ToolbarButton>
+                  <ToolbarRule />
+                  <ToolbarButton
+                    type="button"
                     disabled={pushing || !settings?.sanity?.ready}
                     title={
                       settings?.sanity?.ready
@@ -773,14 +877,19 @@ export default function Home() {
                     }
                     onClick={() => void pushSanity()}
                   >
-                    {pushing ? "Versturen…" : "Push naar Sanity"}
-                  </button>
-                </>
+                    {pushing ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <UploadCloud className="size-3.5" />
+                    )}
+                    {pushing ? "Versturen…" : "Sanity"}
+                  </ToolbarButton>
+                </QuietToolbar>
               ) : null}
             </div>
           ) : null}
 
-          {(tab === "paginas" || !status.length) && job ? (
+          {tab === "paginas" && job ? (
             <PageThumbs
               thumbs={thumbs}
               jobId={job.id}
@@ -791,37 +900,44 @@ export default function Home() {
 
           {tab === "artikel" ? (
             preview && job ? (
-              <section className="pane preview" data-running={phase === "running"}>
-                <header>
-                  <span className="label">Artikel</span>
-                  <span className="pulse">
-                    {phase === "running"
-                      ? `${pageResults.length}/${job.pageCount} pagina's`
-                      : `${preview.content.length} blokken`}
-                  </span>
-                </header>
-                <ArticleView doc={preview} jobId={job.id} />
+              <section className="mb-8">
+                <p className="mb-3 text-right text-xs text-muted-foreground">
+                  {phase === "running"
+                    ? `${pageResults.length}/${job.pageCount} pagina's`
+                    : `${preview.content.length} blokken`}
+                </p>
+                <div
+                  className="overflow-hidden rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.04)] ring-1 ring-black/5"
+                  data-running={phase === "running" ? "true" : undefined}
+                >
+                  <ArticleView doc={preview} jobId={job.id} />
+                </div>
               </section>
             ) : null
           ) : null}
 
           {tab === "mdx" && doc ? (
-            <section className="editor">
-              <header>
-                <span className="label">
+            <section className="overflow-hidden rounded-xl bg-black/[0.04]">
+              <header className="flex items-center gap-4 px-4 py-2.5">
+                <span className="text-sm text-muted-foreground">
                   MDX{mdxEdit !== null ? " · bijgewerkt" : ""}
                 </span>
                 {mdxEdit !== null ? (
-                  <button className="link" onClick={() => setMdxEdit(null)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto"
+                    onClick={() => setMdxEdit(null)}
+                  >
                     Terug naar wat de AI schreef
-                  </button>
+                  </Button>
                 ) : null}
               </header>
-              <textarea
-                className="json"
+              <Textarea
                 spellCheck={false}
                 value={mdxEdit ?? mdx}
                 onChange={(e) => setMdxEdit(e.target.value)}
+                className="min-h-[60vh] rounded-none border-0 bg-transparent px-4 pb-4 font-mono text-xs leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0"
               />
             </section>
           ) : null}
@@ -832,6 +948,7 @@ export default function Home() {
               verdicts={verdicts}
             />
           ) : null}
+          </div>
         </div>
       )}
     </div>
@@ -850,33 +967,20 @@ const LABELS: Record<Tab, string> = {
 
 
 type Provider = "openai" | "mistral";
+type Mode = "artikel" | "magazine";
 
 interface Settings {
   ocrPricePerPage: number;
   currency: string;
   provider: Provider;
   providers: Array<{ id: Provider; label: string; model: string; ready: boolean; limit: number | null }>;
+  /** Hoeveel artikelen uit een magazine tegelijk worden omgezet. */
+  articleConcurrency?: number;
   /** Of deze installatie naar Sanity kan schrijven, en waarheen. */
   sanity?: { ready: boolean; projectId: string | null; dataset: string | null };
 }
 
 const PROVIDER_KEY = "vrhl.provider";
-
-/** An amount, in the notation the rest of the interface uses. */
-function money(amount: number, currency = "USD"): string {
-  return `${currency} ${amount
-    .toFixed(amount < 0.1 ? 4 : amount < 1 ? 3 : 2)
-    .replace(".", ",")}`;
-}
-
-/** How long the run took, in the shortest form that still reads. */
-function duration(ms: number): string {
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1).replace(".", ",")} s`;
-  const minutes = Math.floor(seconds / 60);
-  const rest = Math.round(seconds - minutes * 60);
-  return rest ? `${minutes} m ${rest} s` : `${minutes} m`;
-}
 
 function download(filename: string, content: string) {
   const url = URL.createObjectURL(

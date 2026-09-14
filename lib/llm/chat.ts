@@ -14,14 +14,33 @@ export type JsonSchema = Record<string, unknown>;
 export interface Ledger {
   /** Who is answering this run. The price per token depends on it. */
   provider: Provider;
+  /**
+   * A model other than the provider's default, with its own price. The magazine
+   * analysis reads a hundred pages with a cheap model; an article run leaves this
+   * out and gets the model from .env.local.
+   */
+  model?: ModelChoice;
   calls: number;
   inputTokens: number;
   outputTokens: number;
   failures: number;
 }
 
-export function newLedger(provider: Provider = env.provider): Ledger {
-  return { provider, calls: 0, inputTokens: 0, outputTokens: 0, failures: 0 };
+export interface ModelChoice {
+  model: string;
+  input: number;
+  output: number;
+  /** The setting to name when the model turns out not to exist. */
+  setting: string;
+}
+
+export function newLedger(provider: Provider = env.provider, model?: ModelChoice): Ledger {
+  return { provider, model, calls: 0, inputTokens: 0, outputTokens: 0, failures: 0 };
+}
+
+/** Which model a call on this ledger goes to. */
+function modelOf(provider: Provider, ledger?: Ledger): string {
+  return ledger?.model?.model ?? modelFor(provider).model;
 }
 
 /**
@@ -30,7 +49,7 @@ export function newLedger(provider: Provider = env.provider): Ledger {
  * so this is the ceiling: the real bill is this or less.
  */
 export function aiCost(ledger: Ledger): number {
-  const { input, output } = modelFor(ledger.provider);
+  const { input, output } = ledger.model ?? modelFor(ledger.provider);
   return (ledger.inputTokens * input + ledger.outputTokens * output) / 1_000_000;
 }
 
@@ -71,8 +90,14 @@ export interface AskTextOptions {
   onDelta?: (text: string) => void;
 }
 
-const TIMEOUT_MS = 240_000;
+const TIMEOUT_MS = 480_000;
 const RETRYABLE = new Set([408, 409, 429, 500, 502, 503, 504]);
+const DEFAULT_MAX_OUTPUT = 16000;
+// Mistral counts thinking toward max_tokens. High effort (the default on
+// Medium 3.5) writes a full thinking trace first; 16000 covered the page
+// text and not the thinking, so a structure run died mid-sentence.
+const MISTRAL_DEFAULT_MAX_OUTPUT = 48000;
+const MAX_OUTPUT_CAP = 65536;
 
 /** Mistral's own names for how hard its model may think - the same as OpenAI's, plus two. */
 const MISTRAL_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
@@ -147,8 +172,8 @@ function urlFor(surface: Surface): string {
 }
 
 /** The rate-limit bucket a Mistral chat call is counted against. */
-function bucketKey(): string {
-  return `chat|${env.mistralModel}`;
+function bucketKey(model: string = env.mistralModel): string {
+  return `chat|${model}`;
 }
 
 export async function askJson<T>(opts: AskOptions): Promise<T> {
@@ -197,9 +222,9 @@ async function withRetries<T>(
       // it. Name the setting that is wrong instead.
       if (e.code === 'model_not_found' || e.code === 'invalid_model') {
         if (ledger) ledger.failures++;
-        const setting = provider === 'mistral' ? 'MISTRAL_MODEL' : 'OPENAI_MODEL';
+        const setting = ledger?.model?.setting ?? (provider === 'mistral' ? 'MISTRAL_MODEL' : 'OPENAI_MODEL');
         throw new Error(
-          `[${agent}] Model '${modelFor(provider).model}' bestaat niet of is niet beschikbaar op deze API-key. ` +
+          `[${agent}] Model '${modelOf(provider, ledger)}' bestaat niet of is niet beschikbaar op deze API-key. ` +
             `Zet ${setting} in .env.local op een model dat je account wel heeft.`
         );
       }
@@ -224,12 +249,15 @@ async function callOnce(
   json: { name: string; schema: JsonSchema } | null,
   stream: boolean,
   onDelta: ((text: string) => void) | undefined,
-  retriedEffort = false
+  retriedEffort = false,
+  tokenOverride?: number
 ): Promise<string> {
   const limited = surface === 'mistral';
+  const model = modelOf(provider, opts.ledger);
+  const bucket = bucketKey(model);
   if (limited) {
-    if (closed(bucketKey())) throw zeroLimit();
-    await slot(bucketKey(), env.mistralReqPerMinute);
+    if (closed(bucket)) throw zeroLimit(model);
+    await slot(bucket, env.mistralReqPerMinute);
   }
 
   const ctrl = new AbortController();
@@ -238,10 +266,10 @@ async function callOnce(
     const res = await fetch(urlFor(surface), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${keyFor(provider).key}` },
-      body: JSON.stringify(bodyFor(surface, opts, json, stream)),
+      body: JSON.stringify(bodyFor(surface, model, opts, json, stream, tokenOverride)),
       signal: ctrl.signal
     });
-    if (limited) observe(bucketKey(), res.headers);
+    if (limited) observe(bucket, res.headers);
 
     if (!res.ok || (stream && !res.body)) {
       const text = await res.text();
@@ -250,11 +278,11 @@ async function callOnce(
       if (surface === 'mistral' && !retriedEffort) {
         const supported = unsupportedEffortValues(text);
         if (supported) {
-          mistralEffortSupport.set(env.mistralModel, supported);
-          return callOnce(provider, surface, opts, json, stream, onDelta, true);
+          mistralEffortSupport.set(model, supported);
+          return callOnce(provider, surface, opts, json, stream, onDelta, true, tokenOverride);
         }
       }
-      if (limited && res.status === 429 && closed(bucketKey())) throw zeroLimit();
+      if (limited && res.status === 429 && closed(bucket)) throw zeroLimit(model);
       const err = new Error(`${res.status} ${text.slice(0, 400)}`) as Failure;
       err.status = res.status;
       err.code = errorCode(text);
@@ -263,7 +291,23 @@ async function callOnce(
       throw err;
     }
 
-    if (stream && res.body) return await consume(res.body, surface, opts.ledger, onDelta);
+    if (stream && res.body) {
+      try {
+        return await consume(res.body, surface, opts.ledger, onDelta);
+      } catch (err) {
+        const e = err as Failure;
+        if (e.code !== 'length') throw err;
+        const used = outputBudget(surface, opts, tokenOverride);
+        const next = Math.min(used * 2, MAX_OUTPUT_CAP);
+        if (next <= used) throw err;
+        // The truncated attempt still happened: count it, then write again
+        // with more room. A form feed drops the cut-off stream from the pane;
+        // a JSON onDelta concatenates, so that retry is quiet until it lands.
+        if (opts.ledger) opts.ledger.calls++;
+        if (!json) onDelta?.('\f');
+        return callOnce(provider, surface, opts, json, stream, json ? undefined : onDelta, retriedEffort, next);
+      }
+    }
 
     const body = JSON.parse(await res.text()) as Record<string, unknown>;
     account(usageOf(body, surface), opts.ledger);
@@ -273,9 +317,9 @@ async function callOnce(
   }
 }
 
-function zeroLimit(): Failure {
+function zeroLimit(model: string): Failure {
   const err = new Error(
-    `Mistral staat voor deze key op 0 chat-requests per minuut voor ${env.mistralModel} ` +
+    `Mistral staat voor deze key op 0 chat-requests per minuut voor ${model} ` +
       `(x-ratelimit-limit-req-minute: 0). Zet een limiet voor dit model aan op ` +
       `admin.mistral.ai/plateforme/limits, of kies OpenAI.`
   ) as Failure;
@@ -286,19 +330,29 @@ function zeroLimit(): Failure {
 
 // ─── Bodies ──────────────────────────────────────────────────────────────────
 
-function bodyFor(
+function outputBudget(
   surface: Surface,
   opts: AskOptions | AskTextOptions,
+  override?: number
+): number {
+  return override ?? opts.maxOutputTokens ?? (surface === 'mistral' ? MISTRAL_DEFAULT_MAX_OUTPUT : DEFAULT_MAX_OUTPUT);
+}
+
+function bodyFor(
+  surface: Surface,
+  model: string,
+  opts: AskOptions | AskTextOptions,
   json: { name: string; schema: JsonSchema } | null,
-  stream: boolean
+  stream: boolean,
+  tokenOverride?: number
 ): Record<string, unknown> {
-  const effort = opts.effort ?? env.reasoningEffort;
-  const max = opts.maxOutputTokens ?? 16000;
+  const effort = opts.effort ?? (surface === 'mistral' ? env.mistralReasoningEffort : env.reasoningEffort);
+  const max = outputBudget(surface, opts, tokenOverride);
   const images = opts.images ?? [];
 
   if (surface === 'responses') {
     return {
-      model: env.model,
+      model,
       instructions: opts.instructions,
       input: [
         {
@@ -327,7 +381,7 @@ function bodyFor(
 
   if (surface === 'chat') {
     return {
-      model: env.model,
+      model,
       messages,
       reasoning_effort: effort,
       max_completion_tokens: max,
@@ -342,10 +396,10 @@ function bodyFor(
   // Which levels this model actually accepts is learned from its own refusals
   // (see unsupportedEffortValues); once known, the request is built to match
   // instead of guessing again every call.
-  const known = mistralEffortSupport.get(env.mistralModel);
+  const known = mistralEffortSupport.get(model);
   const mistralEffort = known ? nearestEffort(effort, known) : effort;
   return {
-    model: env.mistralModel,
+    model,
     messages,
     max_tokens: max,
     ...(MISTRAL_EFFORTS.has(mistralEffort) ? { reasoning_effort: mistralEffort } : {}),
@@ -499,10 +553,12 @@ async function consume(
   account(usage, ledger);
 
   // An empty answer is legitimate: a page can be one full-bleed photo with no
-  // running story, and the prompt asks for nothing in that case. Only a model
-  // that was cut off mid-sentence is a failure, and retrying will not fix it.
+  // running story, and the prompt asks for nothing in that case. Cut off
+  // mid-sentence is a failure of the budget, not of the page; callOnce doubles
+  // max_tokens once. Same budget again would only rewrite the same stump.
   if (cutOff) {
     const err = new Error('het model werd afgekapt; verhoog max_output_tokens') as Failure;
+    err.code = 'length';
     err.fatal = true;
     throw err;
   }

@@ -1,5 +1,6 @@
 'use client';
 
+import { Badge } from '@/components/ui/badge';
 import type { ExtractedImage, ImageVerdict, PageResult, Patch } from '@/lib/types';
 
 /**
@@ -9,7 +10,7 @@ import type { ExtractedImage, ImageVerdict, PageResult, Patch } from '@/lib/type
 export function Checks({
   pages,
   images,
-  verdicts,
+  verdicts
 }: {
   pages: PageResult[];
   images: ExtractedImage[];
@@ -20,118 +21,135 @@ export function Checks({
   const byId = new Map(verdicts.map((v) => [v.id, v]));
 
   return (
-    <section>
-      <ul className="checks">
-        {pages.map((page) => (
-          <li key={page.page}>
-            <span className="name">Pagina {page.page}</span>
-            <span className="score">{Math.round(page.check.score * 100)}%</span>
-            <span className="note">
-              {page.blocks.length} alinea&apos;s · {tally(page.patches)} ·{' '}
-              {page.continuity.continuesFromPrevious ? 'loopt door van vorige' : 'nieuwe start'} ·{' '}
-              {page.continuity.continuesOnNext ? 'loopt door' : 'sluit af'}
-              <em className="bron" data-read={page.typography === 'read'}>
-                {WAARVANDAAN[page.typography ?? 'onbekend']}
-              </em>
-            </span>
-          </li>
-        ))}
-      </ul>
-
+    <div className="grid max-w-3xl gap-3">
       {pages.length ? (
-        <>
-          <hr className="rule" />
-          <span className="label">Waar de opmaak vandaan komt</span>
-          <p className="note">{herkomst(pages)}</p>
-        </>
+        <section className="rounded-xl bg-black/[0.04] px-4 py-3">
+          <h3 className="text-sm font-medium">Per pagina</h3>
+          <ul className="mt-2 divide-y divide-black/[0.06]">
+            {pages.map((page) => (
+              <li key={page.page} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-2.5 text-sm">
+                <span className="w-24 shrink-0 text-muted-foreground">Pagina {page.page}</span>
+                <span className="w-12 shrink-0 tabular-nums">{Math.round(page.check.score * 100)}%</span>
+                <span className="min-w-0 flex-1 text-muted-foreground">
+                  {page.blocks.length} alinea&apos;s · {tally(page.patches)} ·{' '}
+                  {page.continuity.continuesFromPrevious ? 'loopt door van vorige' : 'nieuwe start'} ·{' '}
+                  {page.continuity.continuesOnNext ? 'loopt door' : 'sluit af'}
+                </span>
+                <Badge
+                  variant={page.typography === 'read' ? 'secondary' : 'destructive'}
+                  className="border-0"
+                >
+                  {WAARVANDAAN[page.typography ?? 'onbekend']}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 pb-1 text-sm text-muted-foreground">{herkomst(pages)}</p>
+        </section>
       ) : null}
 
       {images.length ? (
-        <>
-          <hr className="rule" />
-          <span className="label">Beeld uit de PDF</span>
-          <ul className="checks">
+        <section className="rounded-xl bg-black/[0.04] px-4 py-3">
+          <h3 className="text-sm font-medium">Beeld uit de PDF</h3>
+          <ul className="mt-2 divide-y divide-black/[0.06]">
             {images.map((image) => {
               const verdict = byId.get(image.id);
+              const dropped = verdict ? !verdict.keep : false;
               return (
-                <li key={image.id} data-dropped={verdict ? !verdict.keep : false}>
-                  <span className="name">{image.id}</span>
-                  <span className="score">{image.dpi} dpi</span>
-                  <span className="note">
-                    {image.width}&times;{image.height}px, {image.areaPct}% van pagina {image.page} &middot;{" "}
-                    {verdict ? `${verdict.kind}: ${verdict.reason}` : "niet beoordeeld"}
+                <li
+                  key={image.id}
+                  className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 py-2.5 text-sm ${dropped ? 'opacity-50' : ''}`}
+                >
+                  <span className="w-24 shrink-0 text-muted-foreground">{image.id}</span>
+                  <span className="w-16 shrink-0 tabular-nums">{image.dpi} dpi</span>
+                  <span className={`min-w-0 flex-1 ${dropped ? 'text-muted-foreground line-through' : 'text-muted-foreground'}`}>
+                    {image.width}&times;{image.height}px, {image.areaPct}% van pagina {image.page} &middot;{' '}
+                    {verdict ? `${verdict.kind}: ${verdict.reason}` : 'niet beoordeeld'}
                   </span>
                 </li>
               );
             })}
           </ul>
-        </>
+        </section>
       ) : null}
 
       {pages.some((p) => p.patches.length) ? (
-        <>
-          <hr className="rule" />
-          <span className="label">Opmaak per fragment</span>
-          <p className="note">{overall(pages)}</p>
-          <ul className="checks marks">
+        <section className="rounded-xl bg-black/[0.04] px-4 py-3">
+          <h3 className="text-sm font-medium">Opmaak per fragment</h3>
+          <p className="mt-1 text-sm text-muted-foreground">{overall(pages)}</p>
+          <ul className="mt-2 divide-y divide-black/[0.06]">
             {pages.flatMap((page) =>
-              page.patches.map((patch, i) => (
-                <li key={`${page.page}-${i}`} data-dropped={page.dropped.includes(i)}>
-                  <span className="name">p{page.page} {patch.target}</span>
-                  <span className="score">{patch.style.join('+')}</span>
-                  <span className="note">
-                    &ldquo;{clip(patch.find)}&rdquo;
-                    {page.dropped.includes(i) ? ' · niet toegepast' : ''}
-                  </span>
+              page.patches.map((patch, i) => {
+                const dropped = page.dropped.includes(i);
+                return (
+                  <li
+                    key={`${page.page}-${i}`}
+                    className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 py-2.5 text-sm ${dropped ? 'opacity-50' : ''}`}
+                  >
+                    <span className="w-24 shrink-0 text-muted-foreground">
+                      p{page.page} {patch.target}
+                    </span>
+                    <span className="w-24 shrink-0">{patch.style.join('+')}</span>
+                    <span className={`min-w-0 flex-1 ${dropped ? 'text-muted-foreground line-through' : 'text-muted-foreground'}`}>
+                      &ldquo;{clip(patch.find)}&rdquo;
+                      {dropped ? ' · niet toegepast' : ''}
+                    </span>
+                  </li>
+                );
+              })
+            )}
+          </ul>
+        </section>
+      ) : null}
+
+      {pages.some((p) => p.check.unknown.length) ? (
+        <section className="rounded-xl bg-black/[0.04] px-4 py-3">
+          <h3 className="text-sm font-medium">Woorden buiten de OCR-index</h3>
+          <ul className="mt-2 grid gap-2">
+            {pages
+              .filter((p) => p.check.unknown.length)
+              .map((p) => (
+                <li key={p.page} className="text-sm text-muted-foreground">
+                  <span className="mr-2 font-medium text-foreground">p{p.page}</span>
+                  {p.check.unknown.join(' · ')}
+                </li>
+              ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {pages.some((p) => p.check.overused.length) ? (
+        <section className="rounded-xl bg-black/[0.04] px-4 py-3">
+          <h3 className="text-sm font-medium">Vaker gebruikt dan de pagina bevat</h3>
+          <ul className="mt-2 grid gap-2">
+            {pages
+              .filter((p) => p.check.overused.length)
+              .map((p) => (
+                <li key={p.page} className="text-sm text-muted-foreground">
+                  <span className="mr-2 font-medium text-foreground">p{p.page}</span>
+                  {p.check.overused.map((o) => `${o.word} ${o.used}/${o.available}`).join(' · ')}
+                </li>
+              ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {pages.some((p) => p.warnings.length) ? (
+        <section className="rounded-xl bg-black/[0.04] px-4 py-3">
+          <h3 className="text-sm font-medium">Waarschuwingen</h3>
+          <ul className="mt-2 grid gap-2">
+            {pages.flatMap((p) =>
+              p.warnings.map((w, i) => (
+                <li key={`${p.page}-${i}`} className="text-sm text-muted-foreground">
+                  <span className="mr-2 font-medium text-foreground">p{p.page}</span>
+                  {w}
                 </li>
               ))
             )}
           </ul>
-        </>
+        </section>
       ) : null}
-
-      {pages.some((p) => p.check.unknown.length) ? (
-        <>
-          <hr className="rule" />
-          <span className="label">Woorden buiten de OCR-index</span>
-          {pages
-            .filter((p) => p.check.unknown.length)
-            .map((p) => (
-              <p key={p.page} className="note">
-                <span className="step">p{p.page}</span> {p.check.unknown.join(' · ')}
-              </p>
-            ))}
-        </>
-      ) : null}
-
-      {pages.some((p) => p.check.overused.length) ? (
-        <>
-          <hr className="rule" />
-          <span className="label">Vaker gebruikt dan de pagina bevat</span>
-          {pages
-            .filter((p) => p.check.overused.length)
-            .map((p) => (
-              <p key={p.page} className="note">
-                <span className="step">p{p.page}</span>{' '}
-                {p.check.overused.map((o) => `${o.word} ${o.used}/${o.available}`).join(' · ')}
-              </p>
-            ))}
-        </>
-      ) : null}
-
-      {pages.some((p) => p.warnings.length) ? (
-        <ul className="warnings">
-          {pages.flatMap((p) =>
-            p.warnings.map((w, i) => (
-              <li key={`${p.page}-${i}`}>
-                <span className="step">p{p.page}</span>
-                {w}
-              </li>
-            ))
-          )}
-        </ul>
-      ) : null}
-    </section>
+    </div>
   );
 }
 
@@ -139,16 +157,16 @@ export function Checks({
  * Hoe de opmaak van een pagina tot stand kwam.
  *
  * Uit de PDF is het beste geval: het fontregister zegt wat vet en cursief is, en
- * dat antwoord is elke keer hetzelfde. Ontbreekt dat - een scan, een advertentie
- * die als beeld is geëxporteerd, of fonts die "F1" heten in plaats van
- * "Antonia-Bold" - dan kijkt er alsnog een model naar de page image. Dat werkt,
+ * dat antwoord is elke keer hetzelfde. Ontbreekt dat, een scan, een advertentie
+ * die als beeld is geexporteerd, of fonts die "F1" heten in plaats van
+ * "Antonia-Bold", dan kijkt er alsnog een model naar de page image. Dat werkt,
  * maar het is een oordeel en geen aflezing, dus het mag niet onzichtbaar blijven.
  */
 const WAARVANDAAN: Record<string, string> = {
   read: 'opmaak uit de PDF',
-  'no-text-layer': 'geen tekstlaag — van het beeld gelezen',
-  'unnamed-fonts': 'fonts zonder bruikbare naam — van het beeld gelezen',
-  onbekend: 'herkomst onbekend (run van vóór het uitlezen van de PDF)'
+  'no-text-layer': 'geen tekstlaag, van het beeld gelezen',
+  'unnamed-fonts': 'fonts zonder bruikbare naam, van het beeld gelezen',
+  onbekend: 'herkomst onbekend'
 };
 
 function herkomst(pages: PageResult[]): string {

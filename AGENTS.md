@@ -44,7 +44,8 @@ Convert
   |
   Mistral OCR (1 call) -> woordindex per pagina
   |
-  Frontmatter-agent          Beeldbeoordeling        <- parallel, document-niveau
+  Frontmatter-agent          Beeldbeoordeling        <- parallel
+                             (per pagina met beelden, met de page image)
   |
   per pagina, parallel:
      AI run 1  schrijft de pagina uit in leesvolgorde,
@@ -60,6 +61,56 @@ gespecialiseerde runs per pagina; die was duurder (37 runs / 161k tokens tegen
 14 / 69k op hetzelfde artikel van zes pagina's) zonder beter te zijn. Voeg geen
 run per pagina toe zonder een aantoonbaar probleem dat je er alleen zo mee
 oplost.
+
+De beeldbeoordeling is zo'n geval. Die ging eerst in één call voor het hele
+document, met alleen thumbnails; een foto uit een advertentiebalk kwam daardoor in
+het artikel, want los ziet hij eruit als elke andere foto. Nu is het één call per
+pagina met beelden, met de pagina erbij en de plek van elk beeld. Zet dat niet
+terug naar losse thumbnails.
+
+## Magazinestand
+
+Naast één artikel kan er een heel magazine in. Dat is een **losse run** die
+alleen uitzoekt waar de artikelen staan (`lib/magazine/analyze.ts`); hij deelt
+niets met de artikel-run behalve de chatclient.
+
+1. `paginascan` per pagina, parallel, met het goedkope model (`magazineModelFor`).
+   Krijgt de vorige, deze en de volgende page image en de tekstlaag, geen OCR,
+   en zegt welke buur tegenover deze pagina ligt (`facing`).
+2. `stitch` in `lib/magazine/stitch.ts`: regels. Offset uit de gelezen
+   paginanummers per meerderheid, spreads (`pairSpreads`: twee pagina's die het
+   van elkaar zeggen; bij onenigheid beslist het even nummer links), fotopagina's
+   zonder tekst bij de pagina ertegenover, artikelen van begin tot begin, sprongen
+   ("lees verder op pagina 64"), advertenties overslaan, inhoudsopgave ernaast.
+3. `grenscontrole` per overgang, parallel. Beslist op inhoud. Bij `onduidelijk`
+   één tweede blik met het gewone model (`strongModelFor`). Alle invoer wordt
+   gebouwd voordat er iets wordt toegepast.
+
+**Denk in spreads, niet in pagina's.** Een opening loopt vaak over twee pagina's
+(kop links, intro rechts). `MapArticle.opening` zegt welke pagina's dat zijn en
+reist als `Job.opening` mee naar de artikel-run. De frontmatter-agent begint met
+zoveel pagina's, en zonder die kennis met twee (`OPENING_DEFAULT` in
+`lib/pipeline.ts`). Begin nooit weer met één pagina en stop bij de eerste kop: dan
+mist hij een intro op de pagina ernaast en schrijft run 1 die in de body.
+
+Daarna knipt de browser per gekozen artikel de hele pagina's uit het magazine
+(`cutArticle` in `lib/client/magazine.ts`) en gaat die PDF door de gewone upload
+en run. **Knip nooit binnen een pagina** (geen CropBox, geen regio's): een
+gedeelde pagina gaat heel mee.
+
+Omzetten gebeurt op de achtergrond in `components/MagazineView.tsx`: uitlezen
+(renderen, rippen, uploaden) één artikel tegelijk, want dat is zwaar in het
+tabblad; de runs lopen naast elkaar, `MAGAZINE_ARTICLE_CONCURRENCY` tegelijk.
+De interface springt niet naar een artikel; de gebruiker opent het zelf.
+
+`page`/`pdf` is overal de plek in het bestand. Het gedrukte nummer (`folio`)
+volgt uit de offset en is alleen weergave. Een magazine staat in
+`.data/jobs/<id>/` naast de jobs, herkenbaar aan `magazine.json`, met
+`scans.json` en `map.json`. Het rijgen is te controleren zonder tokens: roep
+`stitch` aan op een opgeslagen `scans.json`.
+
+Een `Ledger` kan een eigen model en prijs dragen (`newLedger(provider, model)`);
+zonder dat geldt het model uit `.env.local`, zoals voorheen.
 
 ## Harde invarianten
 
@@ -118,8 +169,15 @@ lib/sanity/push.ts    de importstappen op volgorde: assets, credits en tags
                       opzoeken of aanmaken, dan pas schrijven
 lib/cleanup.ts        afbreekstreepjes, regelafbrekingen, whitespace
 lib/imagefilter.ts    de regels die strepen en ornamenten meteen wegzetten
+lib/mosaic.ts         opgeknipte beelden terugvinden en als één blok aanwijzen
 lib/client/render.ts  rasteriseren in de browser
 lib/client/images.ts  de bitmaps uit de PDF rippen met pdf.js
+lib/agents/pagescan.ts   magazine: wat staat er op deze ene pagina
+lib/agents/boundary.ts   magazine: waar houdt het vorige artikel op
+lib/magazine/         analyze (orkestratie), stitch (regels), store, types
+lib/client/magazine.ts   magazine klein renderen, en een artikel eruit knippen
+lib/client/article.ts    een artikel-PDF uploaden en een run volgen, zonder interface:
+                      de losse upload en de magazine-wachtrij gebruiken dezelfde code
 lib/llm/chat.ts       één client voor OpenAI en Mistral: fetch, geen SDK, streaming
 lib/llm/ratelimit.ts  houdt zich aan de limieten die Mistral in elk antwoord meldt
 lib/llm/mistral.ts    OCR, alleen woorden
@@ -195,6 +253,13 @@ gecompileerde artikel:
 
 ## Valkuilen
 
+- **Een beeld kan uit honderd bitmaps bestaan.** Plaats nooit losse stukken van
+  een opgeknipt beeld; `lib/mosaic.ts` voegt ze samen tot één render van de
+  pagina, of laat ze allemaal weg. Pixels onderscheiden een kaderschaduw niet van
+  de rand van een kaart; de tekstlaag doet dat wel. **Test mosaïeken tegen een
+  pdf.js-render**, niet tegen `sips` of een andere renderer: die legt de pagina
+  een paar punten anders neer en dan kloppen de uitkomsten niet met de browser.
+
 - **pdf.js rendert via `requestAnimationFrame`**, en een achtergrondtab bevriest
   dat. Daarom `intent: 'print'` in `lib/client/render.ts`. Haal dat niet weg,
   anders hangt het renderen zodra de gebruiker wegklikt.
@@ -217,18 +282,24 @@ gecompileerde artikel:
   zitten daar `{"type":"thinking"}`-chunks tussen. Alleen de `text`-chunks zijn
   antwoord. Redenering mag nooit in een artikel belanden; `textOf` in
   `lib/llm/chat.ts` bewaakt dat en is getest met nagemaakte chunks.
-- **Mistral-limieten komen uit de headers.** `x-ratelimit-limit-req-minute` en
-  `-remaining-` op elk antwoord; `lib/llm/ratelimit.ts` spreidt de calls daarop,
-  gedeeld over alle pagina's die tegelijk lopen. Een limiet van **0** betekent
-  dat de key dat model niet mag gebruiken: dan stopt de client meteen met een
-  melding in plaats van te blijven proberen. Instellen gebeurt op
-  admin.mistral.ai/plateforme/limits.
+- **Mistral-limieten.** Chat op Medium 3.5 mag 1 aanvraag per seconde. Dat is
+  `MISTRAL_REQ_PER_MINUTE=60`: `lib/llm/ratelimit.ts` start calls nooit sneller,
+  gedeeld over alle pagina's die tegelijk lopen. Een limiet van **0** in de
+  headers betekent dat de key dat model niet mag gebruiken: dan stopt de client
+  meteen met een melding in plaats van te blijven proberen. Instellen gebeurt op
+  admin.mistral.ai/plateforme/limits. Een 429 eert `Retry-After`.
 - **Niet elk Mistral-model ondersteunt dezelfde `reasoning_effort`-waarden.** De
   docs noemen de volle enum (`none|minimal|low|medium|high|xhigh`), maar een
   model kan een deelverzameling afdwingen (`mistral-medium-2604` weigerde
-  `medium` met code `3051`, en noemde alleen `none` en `high` geldig). Zet dit
-  daarom nooit hard per model: `lib/llm/chat.ts` leest de toegestane waarden uit
-  de foutmelding zelf, kiest de dichtstbijzijnde op de schaal, cachet dat per
-  model/proces en herhaalt de aanroep één keer. Geverifieerd tegen de echte API:
-  eerste aanroep herstelt zichzelf (twee round-trips), tweede aanroep is direct
-  raak (één round-trip, cache-hit).
+  `medium` met code `3051`, en noemde alleen `none` en `high` als geldig). De
+  default is daarom `MISTRAL_REASONING_EFFORT=high`: dezelfde kwaliteit als het
+  eerdere remap van `medium`, zonder de mislukte eerste call. Zet dit alsnog
+  nooit hard per model in de client: `lib/llm/chat.ts` leest geweigerde waarden
+  uit de foutmelding, kiest de dichtstbijzijnde op de schaal, cachet dat per
+  model/proces en herhaalt de aanroep één keer.
+- **Mistral telt thinking mee in `max_tokens`.** High effort schrijft eerst een
+  thinking-trace; die gaat van hetzelfde budget af als de pagina. 16000 was
+  genoeg voor de tekst en niet voor het denken, dus run 1 stierf midden in een
+  zin (`finish_reason: length`). De Mistral-standaard is daarom 48000, en bij
+  afkappen verdubbelt de client het budget één keer (tot 65536) in plaats van
+  de pagina om te leggen.

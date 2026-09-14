@@ -109,9 +109,16 @@ export interface ExtractedImage {
   placed: { x: number; y: number; w: number; h: number };
   areaPct: number;
   dpi: number;
+  /** A picture that was sliced into this many bitmaps, merged again by rendering it from the page. */
+  parts?: number;
+  /**
+   * A piece of such a picture: the id of the merged picture, or `tekst` when the
+   * pieces were left out because merging them would have taken a text box along.
+   */
+  partOf?: string;
 }
 
-export type ImageKind = 'photo' | 'illustration' | 'portrait' | 'chart' | 'logo' | 'ornament' | 'rule' | 'other';
+export type ImageKind = 'photo' | 'illustration' | 'portrait' | 'chart' | 'logo' | 'ornament' | 'rule' | 'advert' | 'other';
 
 export interface ImageVerdict {
   id: string;
@@ -262,6 +269,11 @@ export interface PageAsset {
   page: number;
   width: number;
   height: number;
+  /**
+   * The page's own size in points, the unit images are placed in. Older jobs have
+   * none; it is then estimated from the images and the aspect of the render.
+   */
+  points?: { w: number; h: number };
   image: string;
   thumb: string;
   /** The page in quarters, what the styling run looks at. Older jobs have none. */
@@ -293,6 +305,23 @@ export interface Job {
   error: string | null;
   images: ExtractedImage[];
   document: ArticleDocument | null;
+  /**
+   * How many of the first pages make up the opening, when that is known: a
+   * magazine scan says whether an article opens on a spread. Unknown for a PDF
+   * dropped in on its own, and then the frontmatter looks at the first two.
+   */
+  opening?: number;
+  /**
+   * What the article is about, when a magazine scan said so. It lets the image
+   * judgement tell the article's own pictures from an advert on the same page.
+   */
+  context?: ArticleContext;
+}
+
+export interface ArticleContext {
+  title: string | null;
+  rubric: string | null;
+  about: string;
 }
 
 export type RunEvent =

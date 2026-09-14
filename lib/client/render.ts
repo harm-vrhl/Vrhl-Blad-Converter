@@ -31,6 +31,8 @@ export interface RenderedPage {
   typography: TypographySource;
   /** Every word on the page as the file spells it. */
   words: string[];
+  /** The page's size in points, the unit the ripped images are placed in. */
+  points: { w: number; h: number };
 }
 
 const FULL_MAX = 1800; // the page as one image: layout, reading order, images
@@ -96,7 +98,7 @@ export async function renderPdf(
 
       onStep?.(i, doc.numPages, 'beelden');
       const ripped = await withTimeout(
-        ripImages(pdfjs, page, page.getViewport({ scale: 1 })),
+        ripImages(pdfjs, page, page.getViewport({ scale: 1 }), { canvas, scale }),
         RIP_TIMEOUT_MS,
         `Pagina ${i} beelden rippen`
       );
@@ -123,7 +125,8 @@ export async function renderPdf(
           ripped,
           styling: typography.fragments,
           typography: typography.source,
-          words: typography.words
+          words: typography.words,
+          points: { w: base.width, h: base.height }
         },
         doc.numPages
       );

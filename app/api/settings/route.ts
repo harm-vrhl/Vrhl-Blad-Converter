@@ -13,6 +13,7 @@ export async function GET() {
     ocrPricePerPage: env.ocrPricePerPage,
     currency: env.priceCurrency,
     provider: env.provider,
+    articleConcurrency: env.articleConcurrency,
     providers: [
       { id: 'openai', label: 'OpenAI', model: modelFor('openai').model, ready: Boolean(env.openaiKey), limit: null },
       {

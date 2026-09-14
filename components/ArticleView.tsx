@@ -1,6 +1,9 @@
 'use client';
 
 import { Fragment, type ReactNode } from 'react';
+import { cn } from 'cn';
+import { readerSans, readerSerif } from '@/app/reader-fonts';
+import '@/app/reader.css';
 import { linkify } from '@/lib/links';
 import { segments } from '@/lib/spans';
 import type {
@@ -30,7 +33,7 @@ export function ArticleView({ doc, jobId }: { doc: ArticleDocument; jobId: strin
   );
 
   return (
-    <div className="reader">
+    <div className={cn('reader', readerSerif.variable, readerSans.variable)}>
       {doc.header ? (
         <div className="reader-hero">
           {/* eslint-disable-next-line @next/next/no-img-element */}

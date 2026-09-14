@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { env } from './env';
-import type { Job } from './types';
+import type { ArticleContext, Job } from './types';
 
 const root = () => resolve(process.cwd(), env.dataDir, 'jobs');
 
@@ -12,7 +12,11 @@ export function jobDir(id: string): string {
   return join(root(), id);
 }
 
-export async function createJob(filename: string, pageCount: number): Promise<Job> {
+export async function createJob(
+  filename: string,
+  pageCount: number,
+  extra: { opening?: number; context?: ArticleContext } = {}
+): Promise<Job> {
   const id = randomUUID();
   const job: Job = {
     id,
@@ -23,7 +27,9 @@ export async function createJob(filename: string, pageCount: number): Promise<Jo
     createdAt: new Date().toISOString(),
     error: null,
     images: [],
-    document: null
+    document: null,
+    ...(extra.opening ? { opening: extra.opening } : {}),
+    ...(extra.context ? { context: extra.context } : {})
   };
   await mkdir(jobDir(id), { recursive: true });
   await saveJob(job);

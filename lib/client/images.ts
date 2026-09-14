@@ -1,6 +1,7 @@
 'use client';
 
 import type { PDFPageProxy, PageViewport } from 'pdfjs-dist';
+import { findMosaics, MIN_KEPT, TEXT_GUARD, type Box, type TextRun } from '../mosaic';
 import { withTimeout } from '../util';
 
 export interface RippedImage {
@@ -16,6 +17,21 @@ export interface RippedImage {
   full: Blob;
   thumb: Blob;
   mime: string;
+  /** Set on a picture rendered from the page out of this many sliced pieces. */
+  parts?: number;
+  /**
+   * Set on a piece of a sliced picture: the index, in the same list, of the
+   * picture made from it. `tekst` when the pieces could not be merged without a
+   * text box ending up in the picture, and they are left out altogether.
+   */
+  partOf?: number | 'tekst';
+}
+
+/** The page as it was rendered, to see what is drawn around a sliced picture. */
+export interface PageRaster {
+  canvas: HTMLCanvasElement;
+  /** Canvas pixels per page point. */
+  scale: number;
 }
 
 type Matrix = [number, number, number, number, number, number];
@@ -39,6 +55,10 @@ const THUMB = 360;
 const RIP_MAX_EDGE = 4096;
 const RIP_MAX_PIXELS = 12_000_000;
 const OBJ_TIMEOUT_MS = 20_000;
+/** A merged picture is rendered at print resolution, up to this long edge. */
+const MOSAIC_DPI = 300;
+const MOSAIC_MAX_EDGE = 3600;
+const MOSAIC_TIMEOUT_MS = 60_000;
 
 /**
  * Pull the embedded bitmaps straight out of the page instead of cropping them
@@ -51,7 +71,8 @@ const OBJ_TIMEOUT_MS = 20_000;
 export async function ripImages(
   pdfjs: typeof import('pdfjs-dist'),
   page: PDFPageProxy,
-  viewport: PageViewport
+  viewport: PageViewport,
+  raster?: PageRaster
 ): Promise<RippedImage[]> {
   const operators = await page.getOperatorList();
   const base = viewport.transform as Matrix;
@@ -120,7 +141,86 @@ export async function ripImages(
     });
   }
 
+  if (raster && out.length >= 3) await mergeMosaics(pdfjs, page, viewport, raster, out);
   return out;
+}
+
+/**
+ * A map or an infographic sliced into dozens of bitmaps becomes one picture
+ * again: the block its pieces cover, grown over what is drawn around them, is
+ * rendered from the page. Its pieces stay in the list, pointing at it, so the
+ * rules can say why they are not placed.
+ */
+async function mergeMosaics(
+  pdfjs: typeof import('pdfjs-dist'),
+  page: PDFPageProxy,
+  viewport: PageViewport,
+  raster: PageRaster,
+  out: RippedImage[]
+): Promise<void> {
+  const content = await page.getTextContent().catch(() => null);
+  const runs: TextRun[] = (content?.items ?? []).flatMap((item) => {
+    if (!('str' in item) || !item.str.trim()) return [];
+    const t = pdfjs.Util.transform(viewport.transform, item.transform) as number[];
+    const h = Math.hypot(t[2], t[3]);
+    return [{ x: t[4], y: t[5] - h, w: item.width * viewport.scale, h, chars: item.str.trim().length }];
+  });
+
+  const context = raster.canvas.getContext('2d');
+  if (!context) return;
+  const pixels = (area: Box) => {
+    const x = Math.max(0, Math.floor(area.x * raster.scale));
+    const y = Math.max(0, Math.floor(area.y * raster.scale));
+    const w = Math.min(raster.canvas.width, Math.ceil((area.x + area.w) * raster.scale)) - x;
+    const h = Math.min(raster.canvas.height, Math.ceil((area.y + area.h) * raster.scale)) - y;
+    if (w <= 0 || h <= 0) return null;
+    return { data: context.getImageData(x, y, w, h).data, width: w, height: h };
+  };
+
+  const mosaics = findMosaics(out, runs, { page: { w: viewport.width, h: viewport.height }, pixels });
+  for (const mosaic of mosaics) {
+    const mergeable =
+      mosaic.textInside <= TEXT_GUARD && mosaic.kept >= MIN_KEPT && mosaic.box.w >= 20 && mosaic.box.h >= 20;
+    if (!mergeable) {
+      for (const i of mosaic.members) out[i].partOf = 'tekst';
+      continue;
+    }
+    const merged = await renderRegion(page, viewport, mosaic.box).catch(() => null);
+    // A render that fails leaves the pieces as they were; the model still judges them.
+    if (!merged) continue;
+    const index = out.length;
+    out.push({ ...merged, parts: mosaic.members.length });
+    for (const i of mosaic.members) out[i].partOf = index;
+  }
+}
+
+async function renderRegion(page: PDFPageProxy, pageViewport: PageViewport, box: Box): Promise<RippedImage> {
+  const scale = Math.min(MOSAIC_DPI / 72, MOSAIC_MAX_EDGE / Math.max(box.w, box.h));
+  const viewport = page.getViewport({ scale, offsetX: -box.x * scale, offsetY: -box.y * scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(box.w * scale));
+  canvas.height = Math.max(1, Math.round(box.h * scale));
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('canvas niet beschikbaar');
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  // 'print' for the same reason as the page render: a background tab must not stall it.
+  await withTimeout(
+    page.render({ canvasContext: context, viewport, intent: 'print' }).promise,
+    MOSAIC_TIMEOUT_MS,
+    `samengesteld beeld op pagina ${page.pageNumber}`
+  );
+  const placed = { x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.w), h: Math.round(box.h) };
+  return {
+    width: canvas.width,
+    height: canvas.height,
+    placed,
+    areaPct: +((100 * placed.w * placed.h) / (pageViewport.width * pageViewport.height)).toFixed(2),
+    dpi: Math.round(canvas.width / (box.w / 72)),
+    full: await toBlob(canvas, 'image/jpeg'),
+    thumb: await toBlob(downscale(canvas, THUMB), 'image/jpeg'),
+    mime: 'image/jpeg'
+  };
 }
 
 type PdfImage = { bitmap?: ImageBitmap; data?: Uint8ClampedArray; width: number; height: number; kind?: number };

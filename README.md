@@ -18,10 +18,10 @@ het blad staan.
                      +---------------+
                              |
         Frontmatter-agent          Beeldbeoordeling      <- parallel
-   loopt vanaf pagina 1 door    regelfilter gooit strepen
-   tot de titel gevonden is     en ornamenten eruit, de rest
-   chapeau, titel, auteur,      wordt in een keer beoordeeld:
-   fotograaf, datum, intro      hoort dit in het artikel?
+   begint met de opening (de    regelfilter gooit strepen
+   eerste twee pagina's)        en ornamenten eruit, de rest
+   chapeau, titel, auteur,      per pagina met de pagina erbij:
+   fotograaf, datum, intro      hoort dit in dit artikel?
                              |
      +-----------------------+-----------------------+
   pagina 1                pagina 2                pagina 3   <- parallel
@@ -99,12 +99,44 @@ uitsnede.
 Beoordelen gebeurt in twee stappen. Een regel gooit eerst weg wat geen oordeel
 verdient: bitmaps kleiner dan 20 pixels, iets dat als minder dan 8pt op de pagina
 staat, verhoudingen boven 20:1 (strepen en kaderlijnen) en alles onder 0,15% van
-het paginaoppervlak. Wat overblijft gaat in één run naar het model, met formaat,
-resolutie en plek erbij. Naast elkaar zien is wat werkt: een logo herken je pas
-als logo als er een foto naast ligt.
+het paginaoppervlak. Wat overblijft gaat per pagina naar het model: de hele page
+image, de beelden van die pagina als thumbnail, en per beeld waar het staat. Waar
+de magazinescan het weet, krijgt het ook mee waar het artikel over gaat.
+
+Het beeld zelf zegt niet genoeg. Een foto in een advertentiebalk onderaan de
+pagina ziet er precies zo uit als een foto in het verhaal erboven; wat hem verraadt
+is waar hij staat, naast een logo, een slogan en een webadres. Daarom zoekt het
+model elk beeld op in de pagina en beoordeelt het daar: een beeld in een
+advertentie, een banner of een ander artikel op dezelfde pagina gaat eruit. Run 1
+heeft dezelfde regel als vangnet: een beeld dat zichtbaar in een advertentie
+staat, plaatst hij niet.
 
 Alleen wat beide stappen overleeft krijgt run 1 te zien, en die moet ze allemaal
 een plek geven.
+
+### Opgeknipte beelden
+
+Een kaart, infographic of illustratie zit vaak niet als één bitmap in de PDF. De
+export knipt hem in stroken en blokken, soms honderd stuks, en elk stuk wordt
+apart geript. Los in een artikel zijn dat scherven.
+
+Tijdens het uitlezen zoekt de browser die mozaïeken op (`lib/mosaic.ts`):
+
+- stukken die elkaar raken horen bij elkaar; een groep waarin geen stuk het blok
+  domineert is een opgeknipt beeld, geen foto met een logo erop;
+- stukken die tegen lopende tekst aan liggen doen niet mee: dat zijn het vlak en
+  de schaduw van een kader, en die zien er in pixels hetzelfde uit als de rand
+  van een kaart;
+- vanaf de stukken wordt gevolgd wat er op de gerenderde pagina aan vastzit (de
+  titel, de legenda, een getekende cirkel), tot aan tekstkaders, koppen en de
+  paginamarges; een schaduw of lijn langs de rand gaat eraf;
+- dat blok wordt op 300 dpi van de pagina gerenderd als één beeld, en de stukken
+  krijgen de reden *stuk van een opgeknipt beeld*.
+
+Zou het blok toch een tekstkader meenemen, dan wordt er niet samengevoegd en gaan
+de stukken eruit. Liever geen kaart dan een kaart met een half kader. Wat daarna
+nog als los fragment doorkomt, gooit de beeldbeoordeling weg. Werkt op nieuwe
+uploads; een oude job moet opnieuw worden geupload.
 
 ## De woordindex
 
@@ -155,15 +187,74 @@ Wie het artikel schrijft kies je per run met de schakelaar naast *Convert*:
 | Mistral | `mistral-medium-2604`, Mistral Medium 3.5 (`MISTRAL_MODEL`) | $1,50 / $7,50 |
 
 `AI_PROVIDER` is de stand waarmee de schakelaar opent; je laatste keuze wordt
-onthouden. `OPENAI_REASONING_EFFORT` geldt voor beide: Mistral kent dezelfde
-namen (plus `none` en `xhigh`).
+onthouden. `OPENAI_REASONING_EFFORT` is voor OpenAI (`medium`). Mistral heeft
+zijn eigen `MISTRAL_REASONING_EFFORT` (`high`): Medium 3.5 accepteert geen
+`medium`, en `high` is dezelfde kwaliteit als het eerdere stille remap.
 
-Mistral meldt in elk antwoord hoeveel requests per minuut de key mag. De client
-leest dat en spreidt de calls daarop, ook als pagina's tegelijk lopen; tot het
-eerste antwoord geldt `MISTRAL_REQ_PER_MINUTE`. Staat een model op **0**, dan
+Mistral start chat-calls aan 1 per seconde (`MISTRAL_REQ_PER_MINUTE=60`) en
+nooit sneller, ook als pagina's tegelijk lopen. Staat een model op **0**, dan
 stopt de run meteen met een melding: zet dan een limiet aan op
 admin.mistral.ai/plateforme/limits. `MAX_CONCURRENCY` bepaalt hoeveel pagina's
-tegelijk draaien.
+tegelijk mogen nadenken; de starts blijven 1 per seconde.
+
+## Een volledig magazine
+
+Met de schakelaar **Eén artikel / Volledig magazine** boven de dropzone zet je
+een heel blad erin. Dan wordt eerst uitgezocht waar de artikelen staan, en kies
+je daarna welke je omzet.
+
+```
+magazine.pdf
+  |
+  browser: per pagina een image van 1400 px en de tekstlaag (pdf.js)
+  |
+  Pagina's bekijken, per pagina, parallel          <- goedkoop model
+     ziet de pagina tussen zijn twee buren:
+     welke buur ligt ertegenover (spread), wat voor pagina,
+     gedrukt paginanummer, welke stukken
+     (begint hier of loopt door, titel, rubriek, waar het over gaat),
+     verwijzingen, en de regels van een inhoudsopgave
+  |
+  Aan elkaar rijgen                                 <- regels, geen model
+     spreads: twee pagina's die het van elkaar zeggen, bij onenigheid
+     beslist het even paginanummer links;
+     offset uit de paginanummers (een misser telt niet mee,
+     een bijlage met eigen nummering wel), artikelen van begin tot begin,
+     advertenties ertussen overgeslagen, naast de inhoudsopgave gelegd
+  |
+  Grenscontrole, per overgang, parallel            <- goedkoop model
+     waar houdt het vorige artikel op? beslist op inhoud.
+     twijfel? dan kijkt het gewone model nog een keer
+  |
+  een lijst artikelen: aanvinken en Omzetten
+  |
+  per artikel knipt de browser de hele pagina's eruit (pdf-lib)
+  en die PDF gaat door precies dezelfde artikel-run als hierboven,
+  op de achtergrond: uitlezen één voor één in de browser, de runs
+  tegelijk op de server (MAGAZINE_ARTICLE_CONCURRENCY, standaard 3)
+```
+
+Het magazinemodel staat in `.env.local`: `OPENAI_MAGAZINE_MODEL`
+(`gpt-5.6-luna`, $0,20 in / $1,20 uit) of `MISTRAL_MAGAZINE_MODEL`. Er gaat geen
+OCR overheen; die draait pas in de artikel-run, op alleen de pagina's van dat
+artikel.
+
+Een opening kan over twee pagina's lopen: de kop links en de intro rechts, of een
+foto links en de kop rechts. Het systeem kijkt daarom in spreads. Begint een
+artikel op een linkerpagina die tegenover een pagina van hetzelfde artikel ligt,
+dan krijgt de frontmatter-agent in de artikel-run die twee pagina's. Begint het op
+een rechterpagina, dan alleen die ene. Een losse artikel-PDF krijgt altijd de
+eerste twee, en de prompt bewaakt dat de eerste alinea van de lopende tekst geen
+intro wordt.
+
+Tijdens het omzetten blijf je op de lijst. Per artikel zie je hoe ver het is
+(uitlezen, pagina's klaar, kosten) en met *Openen* kijk je in een artikel dat
+klaar is; *Magazine* in de kop brengt je terug, en wat nog loopt gaat door.
+
+Wat de lijst niet zeker weet, zegt hij: *nakijken* als de grenscontrole twijfelde
+of de inhoudsopgave iets anders zegt, *deelt een pagina* als twee artikelen op
+dezelfde pagina staan. Een gedeelde pagina gaat nu nog in zijn geheel mee met
+beide artikelen.
 
 ## Prompts tweaken
 
@@ -177,8 +268,8 @@ laatst werkende versie in gebruik en staat de fout in de serverlog; je run valt
 er dus niet door om.
 
 `effort` is de reasoning-inspanning van die ene run (`minimal` · `low` ·
-`medium` · `high`); `null` betekent: neem `OPENAI_REASONING_EFFORT` uit
-`.env.local`.
+`medium` · `high`); `null` betekent: neem `OPENAI_REASONING_EFFORT` of
+`MISTRAL_REASONING_EFFORT` uit `.env.local`, afhankelijk van wie schrijft.
 
 Het tabblad **Prompts** in de app toont wat er op dat moment naar elke run gaat.
 De datapayload (OCR, blokken, page image) wordt in code samengesteld en staat

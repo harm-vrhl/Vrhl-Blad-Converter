@@ -34,6 +34,14 @@ const TAIL = 300;
 const UNKNOWN_LIMIT = 5;
 /** How far into the article the frontmatter agent keeps looking. */
 const FRONTMATTER_REACH = 3;
+/**
+ * Where it starts looking when nobody said how the article opens. An opening is
+ * often a spread: the headline on the left page and the intro on the right, or a
+ * photo on the left and everything else on the right. Starting with one page and
+ * stopping at the first headline would never see that intro, and run 1 would then
+ * write it into the body.
+ */
+const OPENING_DEFAULT = 2;
 
 /**
  * `provider` says which model writes this run. Mistral reads every page either
@@ -76,33 +84,96 @@ export async function* runPipeline(
   const words = [...index.values()].reduce((n, i) => n + i.total, 0);
   yield { type: 'status', run: 'woordindex', state: 'ok', detail: `${ocrPages.length} pagina(s), ${words} woorden` };
 
-  // 2. Frontmatter. Walk the pages from the first one until it is found, an
-  //    article opening on a full-bleed photo carries its title on page two.
+  // 2. Frontmatter and image triage. Neither needs the other's answer, so they
+  //    start together. At one chat request per second they leave a second apart
+  //    and then think at the same time, instead of the images waiting for the
+  //    title. Pages still wait for both: run 1 needs the approved ids and the
+  //    frontmatter as context.
   const ctx: AgentCtx = { jobId: job.id, ledger, context: '' };
-  let frontmatter = blankFrontmatter();
-  for (let reach = 1; reach <= Math.min(FRONTMATTER_REACH, assets.length); reach++) {
-    const pages = assets.slice(0, reach);
-    const at = pages[reach - 1].page;
-    yield { type: 'status', run: 'frontmatter', state: 'start', page: at };
-
-    // The run hands its half-finished object to a callback and a generator cannot
-    // yield from one, so the partials go through a queue that is drained while the
-    // run is still going - the same way the page runs get their events out.
-    const front = new EventQueue<RunEvent>();
-    const reading = readFrontmatter(
-      ctx,
-      pages.map((a) => a.image),
-      pages.map((a) => `--- PAGINA ${a.page} ---\n${ocrByPage.get(a.page)?.markdown ?? ''}`).join('\n\n'),
-      pages.flatMap((a) => a.words ?? []),
-      (partial) => front.push({ type: 'frontmatter', frontmatter: partial })
-    ).finally(() => front.close());
-
-    for await (const event of front.drain()) yield event;
-    frontmatter = await reading;
-
-    if (frontmatter.title) break;
-    yield { type: 'status', run: 'frontmatter', state: 'ok', page: at, detail: 'geen titel hier, verder kijken' };
+  const rejected = new Map<string, string>();
+  const candidates: ExtractedImage[] = [];
+  for (const image of job.images) {
+    const reason = obviouslyDecorative(image);
+    if (reason) rejected.set(image.id, reason);
+    else candidates.push(image);
   }
+
+  const opening = new EventQueue<RunEvent>();
+
+  const readingFrontmatter = (async () => {
+    let found = blankFrontmatter();
+    // A magazine scan knows whether this article opens on one page or two; a PDF
+    // dropped in on its own does not, and gets the first two.
+    const first = Math.max(1, Math.min(job.opening ?? OPENING_DEFAULT, assets.length));
+    for (let reach = first; reach <= Math.min(Math.max(first, FRONTMATTER_REACH), assets.length); reach++) {
+      const pages = assets.slice(0, reach);
+      const at = pages[reach - 1].page;
+      opening.push({ type: 'status', run: 'frontmatter', state: 'start', page: at });
+      found = await readFrontmatter(
+        ctx,
+        pages.map((a) => a.image),
+        pages.map((a) => `--- PAGINA ${a.page} ---\n${ocrByPage.get(a.page)?.markdown ?? ''}`).join('\n\n'),
+        pages.flatMap((a) => a.words ?? []),
+        (partial) => opening.push({ type: 'frontmatter', frontmatter: partial })
+      );
+      if (found.title) break;
+      opening.push({ type: 'status', run: 'frontmatter', state: 'ok', page: at, detail: 'geen titel hier, verder kijken' });
+    }
+    return found;
+  })();
+
+  const judgingImages = (async () => {
+    opening.push({
+      type: 'status',
+      run: 'beeldbeoordeling',
+      state: 'start',
+      detail: `${job.images.length} bitmap(s) uit de PDF`
+    });
+    let verdicts: ImageVerdict[] = [];
+    try {
+      // Per page, with the page beside the images: a picture in an advert on the
+      // same page looks just like one in the story until you see where it stands.
+      verdicts = await triageImages(ctx, candidates, assets, job.context);
+    } catch (err) {
+      // Without a verdict every candidate stays in; run 1 still decides placement.
+      opening.push({
+        type: 'status',
+        run: 'beeldbeoordeling',
+        state: 'fail',
+        detail: err instanceof Error ? err.message : String(err)
+      });
+    }
+    for (const verdict of verdicts) {
+      if (!verdict.keep) rejected.set(verdict.id, `${verdict.kind}: ${verdict.reason}`);
+    }
+    const kept = job.images.filter((image) => !rejected.has(image.id));
+    await writeArtifact(
+      job.id,
+      'images.json',
+      JSON.stringify({ images: job.images, verdicts, rejected: Object.fromEntries(rejected) }, null, 2)
+    );
+    opening.push({
+      type: 'images',
+      verdicts: [
+        ...verdicts,
+        ...[...rejected]
+          .filter(([id]) => !verdicts.some((v) => v.id === id))
+          .map(([id, reason]) => ({ id, keep: false, kind: 'ornament' as const, reason }))
+      ]
+    });
+    opening.push({
+      type: 'status',
+      run: 'beeldbeoordeling',
+      state: 'ok',
+      detail: `${kept.length} bruikbaar, ${rejected.size} decoratief`
+    });
+    return kept;
+  })();
+
+  const openingWork = Promise.all([readingFrontmatter, judgingImages]).finally(() => opening.close());
+  for await (const event of opening.drain()) yield event;
+  const [frontmatter, approved] = await openingWork;
+
   ctx.context = describe(frontmatter);
   // Een kop staat in displayletter, vaak over een illustratie, en soms is hij
   // helemaal geen tekst maar onderdeel van het beeld - precies waar de OCR een
@@ -130,49 +201,6 @@ export async function* runPipeline(
   }
   yield { type: 'frontmatter', frontmatter };
   yield { type: 'status', run: 'frontmatter', state: 'ok', detail: frontmatter.title ?? '(geen titel gevonden)' };
-
-  // 2b. The bitmaps ripped out of the PDF. The obvious furniture is thrown out
-  //     by rule; the rest is judged once, for the whole document, so the model
-  //     can compare a photograph against the mark that returns on every page.
-  yield { type: 'status', run: 'beeldbeoordeling', state: 'start', detail: `${job.images.length} bitmap(s) uit de PDF` };
-  const rejected = new Map<string, string>();
-  const candidates: ExtractedImage[] = [];
-  for (const image of job.images) {
-    const reason = obviouslyDecorative(image);
-    if (reason) rejected.set(image.id, reason);
-    else candidates.push(image);
-  }
-  let verdicts: ImageVerdict[] = [];
-  try {
-    verdicts = await triageImages(ctx, candidates);
-  } catch (err) {
-    // Without a verdict every candidate stays in; run 1 still decides placement.
-    yield {
-      type: 'status',
-      run: 'beeldbeoordeling',
-      state: 'fail',
-      detail: err instanceof Error ? err.message : String(err)
-    };
-  }
-  for (const verdict of verdicts) {
-    if (!verdict.keep) rejected.set(verdict.id, `${verdict.kind}: ${verdict.reason}`);
-  }
-  const approved = job.images.filter((image) => !rejected.has(image.id));
-  await writeArtifact(
-    job.id,
-    'images.json',
-    JSON.stringify({ images: job.images, verdicts, rejected: Object.fromEntries(rejected) }, null, 2)
-  );
-  yield {
-    type: 'images',
-    verdicts: [...verdicts, ...[...rejected].filter(([id]) => !verdicts.some((v) => v.id === id)).map(([id, reason]) => ({ id, keep: false, kind: 'ornament' as const, reason }))]
-  };
-  yield {
-    type: 'status',
-    run: 'beeldbeoordeling',
-    state: 'ok',
-    detail: `${approved.length} bruikbaar, ${rejected.size} decoratief`
-  };
 
   // 3 & 4. Two runs per page. Pages run in parallel; inside a page they do not.
   const queue = new EventQueue<RunEvent>();

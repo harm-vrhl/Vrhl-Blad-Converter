@@ -13,6 +13,8 @@ interface RippedMeta {
   areaPct: number;
   dpi: number;
   mime: string;
+  parts?: number;
+  partOf?: number | 'tekst';
 }
 
 const STYLES: InlineStyle[] = ['bold', 'italic', 'underline'];
@@ -45,6 +47,18 @@ function readStyling(raw: string): StyleFragment[] {
       };
     })
     .filter((f) => f.text.length > 0 && f.style.length > 0);
+}
+
+/** The page's size in points, if it is two sane numbers. */
+function readPoints(raw: string): { w: number; h: number } | null {
+  try {
+    const parsed = JSON.parse(raw) as { w?: unknown; h?: unknown };
+    const w = Number(parsed.w);
+    const h = Number(parsed.h);
+    return w > 0 && h > 0 && w < 20000 && h < 20000 ? { w, h } : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The page's own words, held to being words. */
@@ -91,6 +105,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // anything else in there is dropped rather than carried into the article.
   const styling = readStyling(String(form.get('styling') ?? '[]'));
   const words = readWords(String(form.get('words') ?? '[]'));
+  const points = readPoints(String(form.get('points') ?? ''));
   const claimed = String(form.get('typography') ?? '');
   const typography: TypographySource = SOURCES.includes(claimed as TypographySource)
     ? (claimed as TypographySource)
@@ -114,13 +129,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       height: meta[i].height,
       placed: meta[i].placed,
       areaPct: meta[i].areaPct,
-      dpi: meta[i].dpi
+      dpi: meta[i].dpi,
+      ...(Number.isInteger(meta[i].parts) && Number(meta[i].parts) > 1 ? { parts: Number(meta[i].parts) } : {}),
+      // The browser points at the merged picture by its place in the list; ids are
+      // given here, by the same place.
+      ...(meta[i].partOf === 'tekst'
+        ? { partOf: 'tekst' }
+        : Number.isInteger(meta[i].partOf) && Number(meta[i].partOf) >= 0 && Number(meta[i].partOf) < meta.length
+          ? { partOf: `img-${page}-${pad2(Number(meta[i].partOf) + 1)}` }
+          : {})
     });
   }
 
   job.pages = [
     ...job.pages.filter((p) => p.page !== page),
-    { page, width, height, image: imageName, thumb: thumbName, tiles, styling, typography, words }
+    { page, width, height, image: imageName, thumb: thumbName, tiles, styling, typography, words, ...(points ? { points } : {}) }
   ].sort(
     (a, b) => a.page - b.page
   );
