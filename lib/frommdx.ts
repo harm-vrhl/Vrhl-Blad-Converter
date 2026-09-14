@@ -1,6 +1,7 @@
 import type {
   ArticleDocument,
   ContentNode,
+  ExtractedImage,
   Frontmatter,
   FrontmatterField,
   FrontmatterItalic,
@@ -35,10 +36,14 @@ import { places, STYLE_ORDER } from './spans';
 const SIZES: ImageSize[] = ['small', 'normal', 'large', 'xlarge'];
 const ITALIC_FIELDS: FrontmatterField[] = ['chapeau', 'title', 'subtitle', 'intro'];
 
-export function fromMdx(text: string, original: ArticleDocument): ArticleDocument {
+export function fromMdx(
+  text: string,
+  original: ArticleDocument,
+  images: ExtractedImage[] = []
+): ArticleDocument {
   const { head, body } = split(text);
   const yaml = readYaml(head);
-  const known = imagesByPath(original);
+  const known = imagesByPath(original, images);
 
   const italics: FrontmatterItalic[] = [];
   const field = (name: FrontmatterField, raw: string | null): string | null => {
@@ -235,13 +240,37 @@ function attribute(text: string, name: string): string | null {
   return match ? match[1].replace(/&quot;/g, '"') : null;
 }
 
-function imagesByPath(doc: ArticleDocument): Map<string, Extract<ContentNode, { type: 'image' }>> {
+/**
+ * Elk beeld onder elk pad waarop de MDX ernaar kan verwijzen.
+ *
+ * Sinds de MDX uit het canonieke pakket komt is dat `assets/<asset-id>.<ext>`,
+ * en drie soorten pad leiden naar hetzelfde plaatje:
+ *
+ *   1. het asset-id van de geripte bitmap, `assets/img-1-01.jpeg`;
+ *   2. de oorspronkelijke bestandsnaam, voor een job van voor het rippen, waar
+ *      het pakket de naam zelf als pad gebruikt: `assets/crop-p01-01.jpeg`;
+ *   3. het oude, uit het bijschrift afgeleide pad van voor de omschakeling.
+ *
+ * Alle drie staan erin, want een sleutel te weinig betekent niet een foutmelding
+ * maar een artikel dat stilletjes zonder beeld terugkomt.
+ */
+function imagesByPath(
+  doc: ArticleDocument,
+  images: ExtractedImage[]
+): Map<string, Extract<ContentNode, { type: 'image' }>> {
   const out = new Map<string, Extract<ContentNode, { type: 'image' }>>();
+  const byFile = new Map(images.map((image) => [image.file, image]));
+
   const walk = (nodes: ContentNode[]) => {
     for (const n of nodes) {
       if (n.type === 'image' && n.file) {
-        // Keyed on what toMdx would have written for it.
-        out.set(pathOf(n), n);
+        const image = byFile.get(n.file);
+        if (image) {
+          const extension = image.file.split('.').pop()?.toLowerCase() ?? 'jpg';
+          out.set(`assets/${image.id}.${extension}`, n);
+        }
+        out.set(`assets/${n.file}`, n);
+        out.set(legacyPathOf(n), n);
       } else if (n.type === 'insert') walk(n.content);
     }
   };
@@ -249,8 +278,8 @@ function imagesByPath(doc: ArticleDocument): Map<string, Extract<ContentNode, { 
   return out;
 }
 
-/** The same path `toMdx` derives, so an edited file still finds its picture. */
-function pathOf(node: Extract<ContentNode, { type: 'image' }>): string {
+/** Het pad dat `toMdx` afleidde voordat de MDX uit het pakket kwam. */
+function legacyPathOf(node: Extract<ContentNode, { type: 'image' }>): string {
   const label = [node.caption, node.credit].filter(Boolean).join(' · ') || null;
   const extension = /\.png$/i.test(node.file ?? '') ? 'png' : 'jpg';
   const words =
@@ -352,6 +381,15 @@ export function inline(source: string): { content: string; styles: StyleSpan[] }
 
   while (i < source.length) {
     const rest = source.slice(i);
+
+    // Een teken dat de schrijver heeft ontsnapt omdat het aan het begin van een
+    // regel stond, hoort er als gewoon teken weer in. Anders draagt de tekst na
+    // een rondgang door de editor een backslash die de pagina nooit had.
+    if (rest.startsWith('\\') && /^[-–•+*>#.)[\]\\]/.test(rest.slice(1))) {
+      push(source[i + 1]);
+      i += 2;
+      continue;
+    }
 
     const link = rest.match(/^\[([^\]]*)\]\((?:<[^>]*>|[^)\s]*)\)/);
     if (link) {

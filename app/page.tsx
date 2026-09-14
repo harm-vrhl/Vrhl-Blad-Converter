@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArticleView } from "@/components/ArticleView";
 import { Checks } from "@/components/Checks";
 import { PageThumbs } from "@/components/PageThumbs";
-import { renderPdf } from "@/lib/client/render";
+import { renderPdf, type RenderStep } from "@/lib/client/render";
 import { blankFrontmatter, compileArticle } from "@/lib/compile";
+import { toPackage } from "@/lib/canonical";
 import { toMdx } from "@/lib/mdx";
 import { fromMdx } from "@/lib/frommdx";
 import { parsePage } from "@/lib/pagemarkup";
@@ -23,7 +24,7 @@ import type {
 } from "@/lib/types";
 
 type Phase = "idle" | "rendering" | "ready" | "running" | "done" | "error";
-type Tab = "artikel" | "mdx" | "checks";
+type Tab = "paginas" | "artikel" | "mdx" | "checks";
 
 interface Step {
   key: string;
@@ -78,11 +79,19 @@ export default function Home() {
   const [verdicts, setVerdicts] = useState<ImageVerdict[]>([]);
   // How this installation stands by default, and what the optional OCR costs.
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [provider, setProvider] = useState<Provider>("openai");
   const [doc, setDoc] = useState<ArticleDocument | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** Het inpakken van het canonieke pakket loopt over de server en duurt even. */
+  const [packing, setPacking] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [tab, setTab] = useState<Tab>("artikel");
-  const input = useRef<HTMLInputElement>(null);
+  const [tab, setTab] = useState<Tab>("paginas");
+  const [renderStep, setRenderStep] = useState<{
+    page: number;
+    total: number;
+    step: RenderStep | "uploaden";
+  } | null>(null);
+  const uploadDisabled = phase === "rendering" || phase === "running";
 
   const accept = useCallback(async (file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf")) {
@@ -101,14 +110,18 @@ export default function Home() {
     setFrontmatter(null);
     setVerdicts([]);
     setDoc(null);
+    setJob(null);
     setThumbs([]);
-    setTab("artikel");
+    setRenderStep(null);
+    setTab("paginas");
 
     try {
       // The page count is only known once pdf.js opens the file, so the job is
       // created while the first page is being rendered.
       let current: Job | null = null;
-      await renderPdf(file, async (rendered, total) => {
+      await renderPdf(
+        file,
+        async (rendered, total) => {
         if (!current) {
           const form = new FormData();
           form.set("file", file);
@@ -127,6 +140,7 @@ export default function Home() {
               `Ontbrekende sleutels in .env.local: ${body.missingKeys.join(", ")}`,
             );
         }
+        setRenderStep({ page: rendered.page, total, step: "uploaden" });
         const form = new FormData();
         form.set("page", String(rendered.page));
         form.set("width", String(rendered.width));
@@ -162,19 +176,24 @@ export default function Home() {
         const res = await fetch(`/api/jobs/${current.id}/pages`, {
           method: "POST",
           body: form,
+          signal: AbortSignal.timeout(120_000),
         });
         if (!res.ok)
           throw new Error(`pagina ${rendered.page} kon niet worden opgeslagen`);
         setThumbs((prev) => [...prev, rendered.previewUrl]);
-      });
+      },
+        (page, total, step) => setRenderStep({ page, total, step }),
+      );
       // The ripped bitmaps are added per page on the server, so pick the job up
       // again once every page has landed.
       if (current) {
         const res = await fetch(`/api/jobs/${(current as Job).id}`);
         if (res.ok) setJob((await res.json()) as Job);
       }
+      setRenderStep(null);
       setPhase("ready");
     } catch (err) {
+      setRenderStep(null);
       setNotice(err instanceof Error ? err.message : String(err));
       setPhase("error");
     }
@@ -187,6 +206,17 @@ export default function Home() {
       .then((body: Settings | null) => {
         if (!live || !body) return;
         setSettings(body);
+        let remembered: string | null = null;
+        try {
+          remembered = window.localStorage.getItem(PROVIDER_KEY);
+        } catch {
+          remembered = null;
+        }
+        const usable = body.providers.filter((p) => p.ready && p.limit !== 0).map((p) => p.id);
+        const pick = [remembered, body.provider].find(
+          (id): id is Provider => !!id && usable.includes(id as Provider),
+        );
+        if (pick) setProvider(pick);
       })
       .catch(() => undefined);
     return () => {
@@ -209,7 +239,11 @@ export default function Home() {
     setTab("artikel");
 
     try {
-      const res = await fetch(`/api/jobs/${job.id}/run`, { method: "POST" });
+      const res = await fetch(`/api/jobs/${job.id}/run`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ provider }),
+      });
       if (!res.body) throw new Error("geen stream ontvangen");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -230,6 +264,23 @@ export default function Home() {
       setNotice(err instanceof Error ? err.message : String(err));
       setPhase("error");
     }
+
+    // A run is where the provider's limits are learned; pick them up afterwards
+    // so the switch can say what the key is allowed.
+    fetch("/api/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: Settings | null) => {
+        if (!body) return;
+        setSettings(body);
+        // A provider that turned out closed cannot stay selected behind a disabled
+        // switch. Only the selection moves; the remembered preference stays, so
+        // it comes back once the limit is set.
+        const open = body.providers.filter((p) => p.ready && p.limit !== 0);
+        setProvider((current) =>
+          open.some((p) => p.id === current) ? current : (open[0]?.id ?? current),
+        );
+      })
+      .catch(() => undefined);
 
     function handle(event: RunEvent) {
       switch (event.type) {
@@ -283,8 +334,66 @@ export default function Home() {
           break;
       }
     }
-  }, [job]);
+  }, [job, provider]);
 
+
+  /**
+   * Het artikel als Vrhl Content Package: pakket.json plus het beeld, in een ZIP.
+   *
+   * Wat in de MDX is bijgewerkt gaat mee. De server kent alleen wat de run heeft
+   * opgeslagen, dus het artikel zoals het nu op het scherm staat reist mee in de
+   * body; anders levert de knop iets anders af dan je ziet.
+   */
+  const downloadPackage = useCallback(async () => {
+    if (!job || !doc) return;
+    setPacking(true);
+    setNotice(null);
+    try {
+      let current = doc;
+      if (mdxEdit !== null) {
+        try {
+          current = fromMdx(mdxEdit, doc, job.images ?? []);
+        } catch {
+          current = doc; // halfgetypte MDX is geen reden om niets te leveren
+        }
+      }
+      const res = await fetch(`/api/jobs/${job.id}/package`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ document: current }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const named = /filename="([^"]+)"/.exec(
+        res.headers.get("content-disposition") ?? "",
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = named?.[1] ?? "pakket.zip";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setNotice(
+        `Het pakket kon niet worden gemaakt: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setPacking(false);
+    }
+  }, [job, doc, mdxEdit]);
+
+  /**
+   * Het canonieke pakket, en de MDX die eruit volgt.
+   *
+   * De MDX komt niet meer rechtstreeks uit het artikelobject maar uit het
+   * pakket, zodat er één bron is waar elke vertaalslag uit leest. Wat je in de
+   * MDX-tab ziet is dus letterlijk wat er in het pakket staat.
+   */
+  const pakket = useMemo(
+    () => (doc ? toPackage(doc, { images: job?.images ?? [] }) : null),
+    [doc, job],
+  );
+  const mdx = useMemo(() => (pakket ? toMdx(pakket) : ""), [pakket]);
 
   const pageResults = useMemo(
     () => Object.values(results).sort((a, b) => a.page - b.page),
@@ -372,7 +481,7 @@ export default function Home() {
       // Halfgetypte MDX is geen reden om het artikel te laten verdwijnen; wat er
       // nog niet van te lezen valt, blijft even staan zoals het stond.
       try {
-        return fromMdx(mdxEdit, doc);
+        return fromMdx(mdxEdit, doc, job?.images ?? []);
       } catch {
         return doc;
       }
@@ -412,74 +521,124 @@ export default function Home() {
     ).document;
   }, [doc, mdxEdit, frontmatter, pageResults, results, text, patches, fragments, approved, job]);
 
+  const idle = !job && phase !== "rendering";
+
   return (
     <div className="frame">
       <header className="masthead">
         <h1>Vrhl · Blad Converter</h1>
+        {job ? (
+          <div className="mast-actions">
+            <span className="mast-meta">
+              {job.filename}
+              {" · "}
+              {phase === "rendering"
+                ? renderStep
+                  ? `${renderStep.page}/${renderStep.total} · ${renderStep.step}`
+                  : `${thumbs.length}/${job.pageCount} klaar`
+                : `${job.pageCount} pagina's`}
+            </span>
+            <label
+              className="quiet"
+              htmlFor={uploadDisabled ? undefined : "pdf-upload"}
+              aria-disabled={uploadDisabled}
+            >
+              Andere PDF
+            </label>
+            {settings ? (
+              <div className="provider" role="radiogroup" aria-label="Taalmodel">
+                {settings.providers.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={provider === p.id}
+                    data-active={provider === p.id}
+                    disabled={!p.ready || p.limit === 0 || phase === "running"}
+                    title={
+                      !p.ready
+                        ? `geen sleutel voor ${p.label}`
+                        : p.limit === 0
+                          ? `${p.label} staat op 0 requests per minuut; zet een limiet aan op admin.mistral.ai/plateforme/limits`
+                          : p.limit
+                            ? `${p.model} · ${p.limit} requests per minuut`
+                            : p.model
+                    }
+                    onClick={() => {
+                      setProvider(p.id);
+                      try {
+                        window.localStorage.setItem(PROVIDER_KEY, p.id);
+                      } catch {
+                        /* a remembered choice is a convenience, not a need */
+                      }
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <button
+              className="action"
+              disabled={
+                phase !== "ready" && phase !== "done" && phase !== "error"
+              }
+              onClick={() => void convert()}
+            >
+              {phase === "running" ? "Bezig…" : "Convert"}
+            </button>
+          </div>
+        ) : null}
       </header>
 
-      <div className="columns">
-        <aside className="rail">
-          {notice ? <p className="notice">{notice}</p> : null}
+      <input
+        id="pdf-upload"
+        className="file-input"
+        type="file"
+        disabled={uploadDisabled}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void accept(file);
+          e.target.value = "";
+        }}
+      />
 
-          <span className="label">Bron</span>
-          <button
+      {notice ? <p className="notice">{notice}</p> : null}
+
+      {idle || (phase === "rendering" && !job) ? (
+        <div
+          className="landing"
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (phase === "rendering") return;
+            setDragging(true);
+          }}
+          onDragLeave={(e) => {
+            if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+            setDragging(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            if (phase === "rendering") return;
+            const file = e.dataTransfer.files[0];
+            if (file) void accept(file);
+          }}
+        >
+          <label
             className="dropzone"
+            htmlFor={phase === "rendering" ? undefined : "pdf-upload"}
             data-active={dragging}
-            disabled={phase === "rendering" || phase === "running"}
-            onClick={() => input.current?.click()}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragging(false);
-              const file = e.dataTransfer.files[0];
-              if (file) void accept(file);
-            }}
+            aria-disabled={phase === "rendering"}
           >
-            {job ? job.filename : "Leg hier een PDF neer"}
-          </button>
-          <input
-            ref={input}
-            type="file"
-            accept="application/pdf"
-            hidden
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void accept(file);
-            }}
-          />
-
-          {job ? (
-            <>
-              <hr className="rule" />
-              <dl className="kv">
-                <dt>Pagina&apos;s</dt>
-                <dd>{job.pageCount}</dd>
-                <dt>Gerenderd</dt>
-                <dd>{thumbs.length}</dd>
-                <dt>Klaar</dt>
-                <dd>{pageResults.length}</dd>
-              </dl>
-              <PageThumbs thumbs={thumbs} jobId={job.id} pages={job.pages} />
-            </>
-          ) : null}
-
-          <hr className="rule" />
-          <button
-            className="action"
-            disabled={
-              phase !== "ready" && phase !== "done" && phase !== "error"
-            }
-            onClick={() => void convert()}
-          >
-            {phase === "running" ? "Bezig…" : "Convert"}
-          </button>
-
-          {steps.length ? (
+            {phase === "rendering"
+              ? "Pagina's renderen…"
+              : "Leg hier een PDF neer"}
+          </label>
+        </div>
+      ) : (
+        <div className="work">
+          {status.length ? (
             <ol className="steps">
               {steps.map((step) => (
                 <li key={step.key} data-state={step.state}>
@@ -515,44 +674,52 @@ export default function Home() {
               ) : null}
             </dl>
           ) : null}
-        </aside>
 
-        <main className="stage">
-          <div className="tabs">
-            {(
-              [
-                "artikel",
-                "mdx",
-                "checks",
-              ] as Tab[]
-            ).map((t) => (
-              <button
-                key={t}
-                data-active={tab === t}
-                onClick={() => setTab(t)}
-                disabled={ALWAYS.includes(t) ? false : !doc}
-              >
-                {LABELS[t]}
-              </button>
-            ))}
-            <span style={{ flex: 1 }} />
-            {doc ? (
-              <>
+          {status.length || totals || phase === "running" || phase === "done" ? (
+            <div className="tabs">
+              {(["paginas", "artikel", "mdx", "checks"] as Tab[]).map((t) => (
                 <button
-                  onClick={() =>
-                    download("artikel.json", JSON.stringify(doc, null, 2))
-                  }
+                  key={t}
+                  data-active={tab === t}
+                  onClick={() => setTab(t)}
+                  disabled={ALWAYS.includes(t) ? false : !doc}
                 >
-                  Download JSON
+                  {LABELS[t]}
                 </button>
-                <button
-                  onClick={() => download("artikel.mdx", mdxEdit ?? toMdx(doc))}
-                >
-                  Download MDX
-                </button>
-              </>
-            ) : null}
-          </div>
+              ))}
+              <span style={{ flex: 1 }} />
+              {doc ? (
+                <>
+                  <button
+                    onClick={() =>
+                      download("artikel.json", JSON.stringify(doc, null, 2))
+                    }
+                  >
+                    Download JSON
+                  </button>
+                  <button onClick={() => download("artikel.mdx", mdxEdit ?? mdx)}>
+                    Download MDX
+                  </button>
+                  <button
+                    className="action"
+                    disabled={packing}
+                    onClick={() => void downloadPackage()}
+                  >
+                    {packing ? "Inpakken…" : "Download pakket"}
+                  </button>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+
+          {(tab === "paginas" || !status.length) && job ? (
+            <PageThumbs
+              thumbs={thumbs}
+              jobId={job.id}
+              pages={job.pages}
+              pageCount={job.pageCount}
+            />
+          ) : null}
 
           {tab === "artikel" ? (
             preview && job ? (
@@ -585,7 +752,7 @@ export default function Home() {
               <textarea
                 className="json"
                 spellCheck={false}
-                value={mdxEdit ?? toMdx(doc)}
+                value={mdxEdit ?? mdx}
                 onChange={(e) => setMdxEdit(e.target.value)}
               />
             </section>
@@ -597,26 +764,33 @@ export default function Home() {
               verdicts={verdicts}
             />
           ) : null}
-        </main>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
 /** Tabs that show something of their own, run or no run. */
-const ALWAYS: Tab[] = ["artikel", "checks"];
+const ALWAYS: Tab[] = ["paginas", "artikel", "checks"];
 
 const LABELS: Record<Tab, string> = {
+  paginas: "Pagina's",
   artikel: "Artikel",
   mdx: "MDX",
   checks: "Controle",
 };
 
 
+type Provider = "openai" | "mistral";
+
 interface Settings {
   ocrPricePerPage: number;
   currency: string;
+  provider: Provider;
+  providers: Array<{ id: Provider; label: string; model: string; ready: boolean; limit: number | null }>;
 }
+
+const PROVIDER_KEY = "vrhl.provider";
 
 /** An amount, in the notation the rest of the interface uses. */
 function money(amount: number, currency = "USD"): string {

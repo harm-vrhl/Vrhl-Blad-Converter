@@ -15,7 +15,15 @@ function num(name: string, fallback: number): number {
   return Number.isFinite(v) && v > 0 ? v : fallback;
 }
 
+/** Which model writes the article. Mistral always reads the page; this is the rest. */
+export type Provider = 'openai' | 'mistral';
+export const PROVIDERS: Provider[] = ['openai', 'mistral'];
+
 export const env = {
+  /** The provider a run uses unless the interface asks for the other one. */
+  get provider(): Provider {
+    return str('AI_PROVIDER', 'openai') === 'mistral' ? 'mistral' : 'openai';
+  },
   get mistralKey() {
     return str('MISTRAL_API_KEY', '');
   },
@@ -27,6 +35,14 @@ export const env = {
   },
   get model() {
     return str('OPENAI_MODEL', 'gpt-5.6-terra');
+  },
+  /**
+   * Mistral Medium 3.5, pinned by version rather than by `-latest` so a run can be
+   * repeated. Vision, structured outputs and reasoning in one model; on this key
+   * it is the newest general model Mistral offers (Large 3 is not on it).
+   */
+  get mistralModel() {
+    return str('MISTRAL_MODEL', 'mistral-medium-2604');
   },
   /** Reasoning budget per run. 'medium' is the working default for this pipeline. */
   get reasoningEffort() {
@@ -40,6 +56,14 @@ export const env = {
   },
   get openaiBase() {
     return str('OPENAI_BASE_URL', 'https://api.openai.com/v1').replace(/\/$/, '');
+  },
+  /**
+   * How many requests per minute to assume for a Mistral model until its first
+   * answer says. After that the limit on the response headers is what counts;
+   * this only paces the very first calls of a run.
+   */
+  get mistralReqPerMinute() {
+    return num('MISTRAL_REQ_PER_MINUTE', 60);
   },
   get concurrency() {
     return num('MAX_CONCURRENCY', 4);
@@ -62,6 +86,13 @@ export const env = {
   get aiPriceOutput() {
     return price('OPENAI_PRICE_OUTPUT', 12);
   },
+  /** Mistral Medium 3.5: $1.50 in and $7.50 out per million tokens (docs.mistral.ai, 2026-09-10). */
+  get mistralPriceInput() {
+    return price('MISTRAL_PRICE_INPUT', 1.5);
+  },
+  get mistralPriceOutput() {
+    return price('MISTRAL_PRICE_OUTPUT', 7.5);
+  },
   /**
    * Mistral bills OCR at $4 per 1000 pages, and a page is a page whether it is a
    * whole spread or one cropped paragraph - which is what makes reading a page
@@ -79,9 +110,20 @@ export const env = {
   }
 };
 
-export function missingKeys(): string[] {
+/** The model and the list price a provider bills at, per million tokens. */
+export function modelFor(provider: Provider): { model: string; input: number; output: number } {
+  return provider === 'mistral'
+    ? { model: env.mistralModel, input: env.mistralPriceInput, output: env.mistralPriceOutput }
+    : { model: env.model, input: env.aiPriceInput, output: env.aiPriceOutput };
+}
+
+/**
+ * The keys a run needs. Mistral reads every page, so its key is always needed;
+ * the OpenAI key only when OpenAI is the one writing.
+ */
+export function missingKeys(provider: Provider = env.provider): string[] {
   const missing: string[] = [];
   if (!env.mistralKey) missing.push('MISTRAL_API_KEY');
-  if (!env.openaiKey) missing.push('OPENAI_API_KEY');
+  if (provider === 'openai' && !env.openaiKey) missing.push('OPENAI_API_KEY');
   return missing;
 }

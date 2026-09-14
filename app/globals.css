@@ -70,36 +70,42 @@ a { color: inherit; }
   text-transform: uppercase;
 }
 
-.columns {
-  display: grid;
-  grid-template-columns: minmax(300px, 27rem) 1fr;
-  gap: 0;
-  align-items: start;
-}
-
-@media (max-width: 900px) {
-  .columns { grid-template-columns: 1fr; }
-  .rail { border-right: 0 !important; border-bottom: 1px solid var(--rule); }
-}
-
-.rail {
-  border-right: 1px solid var(--rule);
-  padding: 1.75rem 2rem 4rem 0;
-  position: sticky;
-  top: 0;
-  max-height: 100vh;
-  overflow-y: auto;
-}
-
-.stage {
-  padding: 1.75rem 0 6rem 2rem;
+.mast-actions {
+  display: flex;
+  align-items: baseline;
+  gap: 1.25rem;
   min-width: 0;
 }
 
-@media (max-width: 900px) {
-  .rail { position: static; max-height: none; padding-right: 0; }
-  .stage { padding-left: 0; }
+.mast-meta {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 28rem;
 }
+
+@media (max-width: 700px) {
+  .masthead { flex-wrap: wrap; }
+  .mast-actions { flex-wrap: wrap; }
+  .mast-meta { max-width: 100%; }
+}
+
+.landing {
+  min-height: calc(100vh - 8rem);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 0 6rem;
+}
+
+.work {
+  padding: 1.75rem 0 6rem;
+}
+
+.work .steps { max-width: 46rem; margin-bottom: 1.5rem; }
+.work .total { margin-top: 0; margin-bottom: 1.75rem; }
 
 /* ── Small parts ─────────────────────────────────────────────────────────── */
 
@@ -115,6 +121,7 @@ a { color: inherit; }
 .rule { border: 0; border-top: 1px solid var(--rule); margin: 1.75rem 0; }
 
 .dropzone {
+  display: block;
   border: 1px dashed var(--rule-strong);
   padding: 3rem 1.5rem;
   text-align: center;
@@ -126,8 +133,25 @@ a { color: inherit; }
   letter-spacing: 0.04em;
 }
 
+.landing .dropzone {
+  width: min(100%, 28rem);
+  padding: 6rem 2rem;
+}
+
 .dropzone[data-active='true'] { background: var(--ink); color: var(--paper); }
-.dropzone:disabled { cursor: default; opacity: 0.5; }
+.dropzone[aria-disabled='true'] { cursor: default; opacity: 0.5; }
+
+.file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 button.action {
   font: inherit;
@@ -143,6 +167,31 @@ button.action {
 
 button.action[data-variant='quiet'] { background: transparent; color: var(--ink); }
 button.action:disabled { opacity: 0.35; cursor: default; }
+
+button.quiet {
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  padding: 0;
+  cursor: pointer;
+}
+button.quiet:hover { color: var(--ink); }
+button.quiet:disabled { color: var(--faint); cursor: default; }
+
+label.quiet {
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+}
+label.quiet:hover { color: var(--ink); }
+label.quiet[aria-disabled='true'] { color: var(--faint); cursor: default; pointer-events: none; }
 
 .kv { display: grid; grid-template-columns: 8.5rem 1fr; gap: 0.35rem 1rem; font-size: 12px; }
 .kv dt { color: var(--faint); }
@@ -554,17 +603,53 @@ textarea.json {
 .link:hover { color: var(--ink); }
 
 .empty { color: var(--faint); font-size: 12px; max-width: 32rem; }
-.notice { border: 1px solid var(--flag); color: var(--flag); padding: 0.75rem 1rem; font-size: 12px; margin-bottom: 1.5rem; }
-.thumbs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 1rem; }
-.thumbs .thumb {
+.notice { border: 1px solid var(--flag); color: var(--flag); padding: 0.75rem 1rem; font-size: 12px; margin: 1.5rem 0 0; }
+
+.pages {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 1.25rem 1rem;
+}
+
+.pages .page {
   padding: 0;
-  border: 1px solid var(--rule);
+  border: 0;
   background: none;
   cursor: zoom-in;
+  font: inherit;
+  color: inherit;
+  text-align: left;
 }
-.thumbs .thumb img { width: 46px; display: block; }
-.thumbs .thumb:hover,
-.thumbs .thumb:focus-visible { border-color: var(--ink); }
+
+.pages .page img {
+  width: 100%;
+  display: block;
+  background: #fff;
+  border: 1px solid var(--rule);
+}
+
+.pages .n {
+  display: block;
+  padding: 0.45rem 0 0;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.pages .page:hover img,
+.pages .page:focus-visible img { border-color: var(--ink); }
+
+.pages .waiting {
+  cursor: default;
+}
+
+.pages .waiting::before {
+  content: '';
+  display: block;
+  aspect-ratio: 1 / 1.414;
+  border: 1px dashed var(--rule);
+}
 
 /* The page as rasterised, on the same paper. Escape, the empty margin, or
    sluiten puts the converter back. No dim, no motion. */
@@ -662,3 +747,20 @@ textarea.json {
 .prompts .kv { margin: 0 0 1rem; grid-template-columns: 6rem 1fr; }
 .prompts pre { color: var(--ink); }
 .prompts code { font-size: 11px; color: var(--muted); }
+
+/* Which model writes. Two words and a hairline; the active one is inked. */
+.provider { display: inline-flex; border: 1px solid var(--rule-strong); }
+.provider button {
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 0.55rem 0.8rem;
+  background: transparent;
+  color: var(--ink);
+  border: 0;
+  cursor: pointer;
+}
+.provider button + button { border-left: 1px solid var(--rule-strong); }
+.provider button[data-active='true'] { background: var(--ink); color: var(--paper); }
+.provider button:disabled { opacity: 0.35; cursor: default; }

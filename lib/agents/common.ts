@@ -1,5 +1,5 @@
 import { readArtifactAsDataUrl } from '../store';
-import type { Ledger, JsonSchema } from '../llm/openai';
+import type { Ledger, JsonSchema } from '../llm/chat';
 import type { Block, PageBlock } from '../types';
 
 export interface AgentCtx {

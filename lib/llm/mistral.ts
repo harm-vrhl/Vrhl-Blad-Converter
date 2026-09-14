@@ -1,4 +1,5 @@
 import { env } from '../env';
+import { closed, observe, slot } from './ratelimit';
 import type { OcrBlock, OcrBlockType, OcrPage } from '../types';
 
 const RETRIES = 5;
@@ -89,12 +90,21 @@ async function ask(
   // and trying again is cheaper than losing the page.
   let text = '';
   let status = 0;
+  const bucket = `ocr|${env.ocrModel}`;
   for (let attempt = 0; attempt < RETRIES; attempt++) {
+    if (closed(bucket)) {
+      throw new Error(
+        `Mistral staat voor deze key op 0 OCR-requests per minuut voor ${env.ocrModel}. ` +
+          `Zet een limiet aan op admin.mistral.ai/plateforme/limits.`
+      );
+    }
+    await slot(bucket, env.mistralReqPerMinute);
     const res = await fetch(`${env.mistralBase}/ocr`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${env.mistralKey}` },
       body: JSON.stringify({ model: env.ocrModel, document })
     });
+    observe(bucket, res.headers);
     text = await res.text();
     status = res.status;
     if (res.ok) break;

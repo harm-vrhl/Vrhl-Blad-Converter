@@ -1,6 +1,6 @@
 import { cleanupText } from '../cleanup';
 import { partialJson } from '../util';
-import { askJson } from '../llm/openai';
+import { askJson } from '../llm/chat';
 import type { Frontmatter, FrontmatterField } from '../types';
 import { promptFor } from '../prompts';
 import { AgentCtx, nullableStr, obj, pageImageUrl, str, strArray } from './common';

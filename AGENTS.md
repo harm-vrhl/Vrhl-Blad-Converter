@@ -105,11 +105,18 @@ lib/pagemarkup.ts     parst de markers van run 1 naar blokken
 lib/patch.ts          legt de styling van run 2 over run 1 heen
 lib/wordindex.ts      de woordindex en zijn controle
 lib/compile.ts        pagina's naar één artikel: naden, quotes, ruis
+lib/canonical.ts      het artikel als Vrhl Content Package 1.0. De enige plek
+                      die dat formaat kent; weet niets van Sanity, MDX of Word
+lib/zip.ts            pakket.json plus het beeld als ZIP, zonder dependency
+lib/mdx.ts            schrijft MDX, en leest daarvoor het PAKKET, niet het
+                      artikelobject: het pakket is de bron, MDX een consument
+lib/frommdx.ts        leest de bewerkte MDX terug naar een artikelobject
 lib/cleanup.ts        afbreekstreepjes, regelafbrekingen, whitespace
 lib/imagefilter.ts    de regels die strepen en ornamenten meteen wegzetten
 lib/client/render.ts  rasteriseren in de browser
 lib/client/images.ts  de bitmaps uit de PDF rippen met pdf.js
-lib/llm/openai.ts     fetch-client, geen SDK, met streaming
+lib/llm/chat.ts       één client voor OpenAI en Mistral: fetch, geen SDK, streaming
+lib/llm/ratelimit.ts  houdt zich aan de limieten die Mistral in elk antwoord meldt
 lib/llm/mistral.ts    OCR, alleen woorden
 app/                  UI en API-routes
 components/           Stream (live), ArticleView, Checks, Prompts
@@ -193,30 +200,30 @@ gecompileerde artikel:
 - **Het model heet `gpt-5.6-terra`.** "medium" is de reasoning-effort, een aparte
   parameter, geen deel van de model-id. Een `model_not_found` wordt apart
   afgevangen en niet opnieuw geprobeerd.
-- **De woordindex controleert de geparste blokken, niet de ruwe output.** Anders
-  tellen de markers (`image`, `insert`, `crop`, `ja`) als woorden die de pagina
-  niet heeft, en doet elke pagina onnodig een tweede poging.
-- **Vrijstaande foto's hebben transparantie.** Die als JPEG opslaan geeft een
-  zwarte achtergrond. Er zit een alfa-check op; laat die staan.
-- **De client kent de job zoals die bij het aanmaken was.** De geripte bitmaps
-  komen er per pagina bij op de server, dus de job wordt na het uploaden opnieuw
-  opgehaald.
-
-## Stijl
-
-- Kleine, vaste dependency-set: `next`, `react`, `pdfjs-dist`. Voeg er geen toe
-  zonder sterke reden; de LLM-clients zijn met `fetch` geschreven, zonder SDK.
-- Comments leggen uit **waarom**, niet wat. Een comment die de regel eronder
-  navertelt is ruis.
-- De UI is Calvinistisch: papier, inkt, haarlijnen. Geen radius, geen schaduw,
-  geen gradiënt, geen animatie. Mono voor de interface, serif voor het artikel.
-- Het runlog en de Live-view tonen wat er echt gebeurt, inclusief wat is
-  afgekeurd. Verberg geen verworpen patch of afgekeurde afbeelding; die
-  zichtbaarheid is de helft van het product.
-
-## Wat je moet melden
-
-Als je iets aanpast wat de output verandert, controleer het op een echt artikel
-en rapporteer wat je zag, niet wat je verwacht. Faalt er iets, zeg dat met de
-output erbij. Weet je iets niet zeker, zeg dat er expliciet bij in plaats van
-het glad te strijken.
+- **Twee providers, één client.** Wie het artikel schrijft kiest de gebruiker
+  per run (OpenAI of Mistral); Mistral doet altijd de OCR. De provider reist mee
+  op de `Ledger`, omdat de prijs per token ervan afhangt, dus agents hoeven hem
+  niet te kennen. Voeg nooit een providerspecifieke aanroep toe in een agent.
+- **Mistral weigert velden die het niet kent.** Stuur alleen wat in hun eigen
+  API-spec staat: `max_tokens` (niet `max_completion_tokens`), geen
+  `stream_options`. De veldnamen zijn nagekeken in de officiële SDK
+  (`mistralai/client-python`, `src/mistralai/client/models/`), niet in de docs.
+- **Mistral kan `content` als lijst van chunks sturen**, en als het model redeneert
+  zitten daar `{"type":"thinking"}`-chunks tussen. Alleen de `text`-chunks zijn
+  antwoord. Redenering mag nooit in een artikel belanden; `textOf` in
+  `lib/llm/chat.ts` bewaakt dat en is getest met nagemaakte chunks.
+- **Mistral-limieten komen uit de headers.** `x-ratelimit-limit-req-minute` en
+  `-remaining-` op elk antwoord; `lib/llm/ratelimit.ts` spreidt de calls daarop,
+  gedeeld over alle pagina's die tegelijk lopen. Een limiet van **0** betekent
+  dat de key dat model niet mag gebruiken: dan stopt de client meteen met een
+  melding in plaats van te blijven proberen. Instellen gebeurt op
+  admin.mistral.ai/plateforme/limits.
+- **Niet elk Mistral-model ondersteunt dezelfde `reasoning_effort`-waarden.** De
+  docs noemen de volle enum (`none|minimal|low|medium|high|xhigh`), maar een
+  model kan een deelverzameling afdwingen (`mistral-medium-2604` weigerde
+  `medium` met code `3051`, en noemde alleen `none` en `high` geldig). Zet dit
+  daarom nooit hard per model: `lib/llm/chat.ts` leest de toegestane waarden uit
+  de foutmelding zelf, kiest de dichtstbijzijnde op de schaal, cachet dat per
+  model/proces en herhaalt de aanroep één keer. Geverifieerd tegen de echte API:
+  eerste aanroep herstelt zichzelf (twee round-trips), tweede aanroep is direct
+  raak (één round-trip, cache-hit).

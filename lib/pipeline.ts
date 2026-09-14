@@ -4,8 +4,8 @@ import { writeStructure } from './agents/structure';
 import { detectStyling, type StyleFragment } from './agents/styling';
 import type { AgentCtx } from './agents/common';
 import { blankFrontmatter, compileArticle } from './compile';
-import { env } from './env';
-import { aiCost, newLedger } from './llm/openai';
+import { env, type Provider } from './env';
+import { aiCost, checkMistral, newLedger } from './llm/chat';
 import { newOcrLedger, ocrCost, ocrPdf, type OcrLedger } from './llm/mistral';
 import { textOf } from './pagemarkup';
 import { reconcile, strayLetters } from './spelling';
@@ -35,9 +35,18 @@ const UNKNOWN_LIMIT = 5;
 /** How far into the article the frontmatter agent keeps looking. */
 const FRONTMATTER_REACH = 3;
 
-export async function* runPipeline(job: Job): AsyncGenerator<RunEvent, void, void> {
+/**
+ * `provider` says which model writes this run. Mistral reads every page either
+ * way; this only chooses who does the rest.
+ */
+export async function* runPipeline(
+  job: Job,
+  options: { provider?: Provider } = {}
+): AsyncGenerator<RunEvent, void, void> {
   const started = Date.now();
-  const ledger = newLedger();
+  const ledger = newLedger(options.provider ?? env.provider);
+  // Before the OCR is paid for: may this key have Mistral write at all?
+  if (ledger.provider === 'mistral') await checkMistral(ledger);
   const ocrLedger = newOcrLedger();
   const assets = [...job.pages].sort((a, b) => a.page - b.page);
 

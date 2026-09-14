@@ -1,4 +1,4 @@
-import { askText } from '../llm/openai';
+import { askText } from '../llm/chat';
 import { parsePage } from '../pagemarkup';
 import { promptFor } from '../prompts';
 import type { Block, Continuity, ExtractedImage } from '../types';

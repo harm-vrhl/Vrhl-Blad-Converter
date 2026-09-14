@@ -49,6 +49,23 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Reject when a step takes too long; the message names what was waited for. */
+export function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${what} duurde te lang (${Math.round(ms / 1000)} s)`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 /** A queue that lets a generator yield events while background work is still running. */
 export class EventQueue<T> {
   private items: T[] = [];

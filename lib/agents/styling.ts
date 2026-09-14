@@ -1,4 +1,4 @@
-import { askJson } from '../llm/openai';
+import { askJson } from '../llm/chat';
 import type { InlineStyle } from '../types';
 import { promptFor } from '../prompts';
 import { AgentCtx, obj, pageImageUrl, str, strArray } from './common';

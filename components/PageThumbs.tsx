@@ -4,18 +4,21 @@ import { useEffect, useRef, useState } from 'react';
 import type { PageAsset } from '@/lib/types';
 
 /**
- * The strip in the rail is only a reminder of which pages are in. A click
- * opens the page as it was rasterised, the same image the runs look at, so a
- * question about type or placement can be checked against the source.
+ * After upload the pages themselves are the view: a grid of the rasterised
+ * spreads, filling in as pdf.js finishes each one. A click opens the page at
+ * the size the runs look at, so a question about type or placement can be
+ * checked against the source.
  */
 export function PageThumbs({
   thumbs,
   jobId,
-  pages
+  pages,
+  pageCount
 }: {
   thumbs: string[];
   jobId: string | null;
   pages: PageAsset[];
+  pageCount: number;
 }) {
   const [open, setOpen] = useState<number | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -44,7 +47,8 @@ export function PageThumbs({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, thumbs.length]);
 
-  if (!thumbs.length) return null;
+  const total = Math.max(pageCount, thumbs.length);
+  if (!total) return null;
 
   const src = (index: number) => {
     const asset = pages.find((page) => page.page === index + 1);
@@ -54,13 +58,26 @@ export function PageThumbs({
 
   return (
     <>
-      <div className="thumbs">
-        {thumbs.map((thumb, i) => (
-          <button key={i} type="button" className="thumb" aria-label={`Pagina ${i + 1} uitvergroten`} onClick={() => setOpen(i)}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={thumb} alt="" />
-          </button>
-        ))}
+      <div className="pages">
+        {Array.from({ length: total }, (_, i) =>
+          thumbs[i] ? (
+            <button
+              key={i}
+              type="button"
+              className="page"
+              aria-label={`Pagina ${i + 1} uitvergroten`}
+              onClick={() => setOpen(i)}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={thumbs[i]} alt="" />
+              <span className="n">Pagina {i + 1}</span>
+            </button>
+          ) : (
+            <div key={i} className="waiting" aria-hidden>
+              <span className="n">Pagina {i + 1}</span>
+            </div>
+          )
+        )}
       </div>
 
       <dialog

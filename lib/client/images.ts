@@ -1,6 +1,7 @@
 'use client';
 
 import type { PDFPageProxy, PageViewport } from 'pdfjs-dist';
+import { withTimeout } from '../util';
 
 export interface RippedImage {
   /** Native pixel size of the bitmap as it is stored in the PDF. */
@@ -34,6 +35,10 @@ const apply = (m: Matrix, x: number, y: number): [number, number] => [
 ];
 
 const THUMB = 360;
+/** Above this, ripping the native bitmap can freeze the tab for minutes. */
+const RIP_MAX_EDGE = 4096;
+const RIP_MAX_PIXELS = 12_000_000;
+const OBJ_TIMEOUT_MS = 20_000;
 
 /**
  * Pull the embedded bitmaps straight out of the page instead of cropping them
@@ -80,6 +85,7 @@ export async function ripImages(
 
     const bitmap = await resolve(page, name);
     if (!bitmap) continue;
+    if (bitmap.width * bitmap.height > RIP_MAX_PIXELS * 4) continue;
 
     // The image fills the unit square, transformed onto the page.
     const corners = ([[0, 0], [1, 0], [0, 1], [1, 1]] as const).map(([x, y]) => apply(ctm, x, y));
@@ -93,7 +99,12 @@ export async function ripImages(
     };
     if (placed.w < 1 || placed.h < 1) continue;
 
-    const canvas = draw(bitmap);
+    let canvas: HTMLCanvasElement;
+    try {
+      canvas = draw(bitmap);
+    } catch {
+      continue;
+    }
     const transparent = hasAlpha(canvas);
     const mime = transparent ? 'image/png' : 'image/jpeg';
 
@@ -117,7 +128,11 @@ type PdfImage = { bitmap?: ImageBitmap; data?: Uint8ClampedArray; width: number;
 async function resolve(page: PDFPageProxy, name: string): Promise<PdfImage | null> {
   try {
     const objs = page.objs as unknown as { get: (n: string, cb: (v: unknown) => void) => void };
-    const value = await new Promise<unknown>((done) => objs.get(name, done));
+    const value = await withTimeout(
+      new Promise<unknown>((done) => objs.get(name, done)),
+      OBJ_TIMEOUT_MS,
+      `bitmap op pagina ${page.pageNumber}`
+    );
     const image = value as PdfImage | null;
     if (!image || !image.width || !image.height) return null;
     return image;
@@ -127,18 +142,29 @@ async function resolve(page: PDFPageProxy, name: string): Promise<PdfImage | nul
 }
 
 function draw(image: PdfImage): HTMLCanvasElement {
+  const scale = Math.min(
+    1,
+    RIP_MAX_EDGE / Math.max(image.width, image.height),
+    Math.sqrt(RIP_MAX_PIXELS / (image.width * image.height))
+  );
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+
   const canvas = document.createElement('canvas');
-  canvas.width = image.width;
-  canvas.height = image.height;
+  canvas.width = width;
+  canvas.height = height;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('canvas niet beschikbaar');
 
   if (image.bitmap) {
-    context.drawImage(image.bitmap, 0, 0);
+    context.drawImage(image.bitmap, 0, 0, width, height);
     return canvas;
   }
 
-  // Older shape: raw samples, one of three pixel layouts.
+  // Older shape: raw samples, one of three pixel layouts. Only at native size when
+  // it is still safe; otherwise the page would hang allocating hundreds of MB.
+  if (scale < 1) throw new Error('bitmap te groot om te rippen');
+
   const pixels = new Uint8ClampedArray(image.width * image.height * 4);
   const data = image.data ?? new Uint8ClampedArray(0);
   if (image.kind === 3) {

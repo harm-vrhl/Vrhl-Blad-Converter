@@ -1,4 +1,4 @@
-import { askJson } from '../llm/openai';
+import { askJson } from '../llm/chat';
 import { promptFor } from '../prompts';
 import type { ExtractedImage, ImageKind, ImageVerdict } from '../types';
 import { AgentCtx, obj, pageImageUrl, str } from './common';

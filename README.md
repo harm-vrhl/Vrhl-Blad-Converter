@@ -43,11 +43,11 @@ het blad staan.
 
 Eén AI-run per pagina die tekst schrijft, plus de frontmatter-agent voor het hele
 artikel. Pagina's lopen parallel, en binnen een pagina loopt de opmaak gelijk op
-met het schrijven — de tekst verschijnt dus meteen mét zijn vet en cursief.
+met het schrijven: de tekst verschijnt dus meteen mét zijn vet en cursief.
 
 De opmaak komt niet uit een model maar **uit het fontregister van de PDF zelf**.
-Alleen voor pagina's zonder tekstlaag — een scan, een advertentie die als beeld is
-geëxporteerd — kijkt er alsnog een run naar de page image. Zie
+Alleen voor pagina's zonder tekstlaag (een scan, een advertentie die als beeld is
+geëxporteerd) kijkt er alsnog een run naar de page image. Zie
 [TYPOGRAFIE.md](TYPOGRAFIE.md) voor het waarom en de vallen.
 
 ## De regels van run 1
@@ -146,10 +146,24 @@ http://localhost:3210 · PDF erin · *Convert*.
 
 ### Instellingen
 
-Alles in `.env.local`. Modellen staan default op `mistral-ocr-latest` en
-`gpt-5.6-terra`, met `OPENAI_REASONING_EFFORT=medium`. `OPENAI_API_STYLE` kiest
-tussen de Responses API en Chat Completions en valt bij een 404/400 zelf één keer
-terug. `MAX_CONCURRENCY` bepaalt hoeveel pagina's tegelijk draaien.
+Alles in `.env.local`. Mistral leest altijd de pagina's (`mistral-ocr-latest`).
+Wie het artikel schrijft kies je per run met de schakelaar naast *Convert*:
+
+| | model | prijs per 1M tokens (in / uit) |
+|---|---|---|
+| OpenAI | `gpt-5.6-terra` (`OPENAI_MODEL`) | $2 / $12 |
+| Mistral | `mistral-medium-2604`, Mistral Medium 3.5 (`MISTRAL_MODEL`) | $1,50 / $7,50 |
+
+`AI_PROVIDER` is de stand waarmee de schakelaar opent; je laatste keuze wordt
+onthouden. `OPENAI_REASONING_EFFORT` geldt voor beide: Mistral kent dezelfde
+namen (plus `none` en `xhigh`).
+
+Mistral meldt in elk antwoord hoeveel requests per minuut de key mag. De client
+leest dat en spreidt de calls daarop, ook als pagina's tegelijk lopen; tot het
+eerste antwoord geldt `MISTRAL_REQ_PER_MINUTE`. Staat een model op **0**, dan
+stopt de run meteen met een melding: zet dan een limiet aan op
+admin.mistral.ai/plateforme/limits. `MAX_CONCURRENCY` bepaalt hoeveel pagina's
+tegelijk draaien.
 
 ## Prompts tweaken
 
@@ -185,7 +199,8 @@ lib/patch.ts        legt de styling van run 2 over run 1 heen
 lib/wordindex.ts    de woordindex en zijn controle
 lib/compile.ts      pagina's naar één artikel
 lib/pipeline.ts     de orkestratie, en wat waar parallel loopt
-lib/llm/            Mistral OCR en de OpenAI-client (fetch, geen SDK, streaming)
+lib/llm/            Mistral OCR, en één chatclient voor OpenAI en Mistral
+                    (fetch, geen SDK, streaming, houdt zich aan Mistrals limieten)
 .data/jobs/         per job: page images, geripte bitmaps, ocr.json,
                     images.json, pages.json, article.json
 ```
@@ -193,6 +208,38 @@ lib/llm/            Mistral OCR en de OpenAI-client (fetch, geen SDK, streaming)
 ## Output
 
 Eén artikelobject: `frontmatter` plus een platte `content`-lijst van
-`paragraph`, `subheading`, `quote`, `streamer`, `image` en `insert`. Daaruit
-volgen MDX, HTML, Portable Text of het Vrhl-Blad-formaat; `lib/export.ts` doet
-Markdown als voorbeeld.
+`paragraph`, `subheading`, `quote`, `streamer`, `image` en `insert`. Dat is wat
+de app intern rondstuurt en wat de MDX-tab laat bewerken.
+
+Naar buiten gaat het als **Vrhl Content Package 1.0**, het canonieke
+uitwisselformaat uit `Vrhl-Blad-Canonical/canonical/`. Dat formaat kent geen CMS
+en geen opslagtechniek: één `pakket.json` met de artikelen en een aparte
+`assets`-lijst waar de content via id's naar verwijst. Vanuit dat ene pakket
+lopen de vertaalslagen naar MDX, Word, HTML of Sanity, zonder dat deze converter
+van een van die kanten iets hoeft te weten.
+
+De MDX-tab is daar meteen het bewijs van: die tekst wordt niet meer uit het
+artikelobject geschreven maar uit het pakket, net zoals een Word- of
+Sanity-adapter dat zou doen. Wat je in de MDX ziet staat dus letterlijk in
+`pakket.json`.
+
+*Download pakket* levert een ZIP met `pakket.json` en het beeld ernaast. Zo
+uitgepakt is het te controleren met de validator van het formaat zelf:
+
+```bash
+node canonical/validate.mjs pakket.json --bestanden
+```
+
+Wat de converter meestuurt en waarom het er staat:
+
+| Veld | Wat erin komt |
+|---|---|
+| `bron.betrouwbaarheid` | De **laagste** woorddekking van alle pagina's. Een artikel is zo goed als zijn slechtste pagina; wegmiddelen verbergt precies wat je wilt zien. |
+| `bron.controleren` | Waar een mens naar moet kijken, bijvoorbeeld `woorden` als een pagina iets buiten de index schreef. |
+| `bron.paginas` | Uit welke pagina's van de PDF dit komt. |
+| `externeId` | `pdf:<hash van de bestandsnaam>#p1-6`. Stabiel, zodat een tweede run bijwerkt in plaats van dupliceert. |
+| `publicatie.klaar` | Altijd `false`. Een machinale extractie is niet nagekeken, dus de importer hoort hem als concept te behandelen. |
+
+Wat de PDF niet kan weten (tags, editie, SEO, video) blijft weg in plaats van
+verzonnen te worden. Alt-teksten ook: staat er geen bijschrift bij het beeld, dan
+komt er geen alt, en meldt de validator dat als waarschuwing.

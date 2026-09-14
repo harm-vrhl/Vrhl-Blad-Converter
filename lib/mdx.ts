@@ -1,83 +1,98 @@
-import { linkify } from './links';
-import { STYLE_ORDER, segments, type Segment } from './spans';
-import type {
-  ArticleDocument,
-  ContentNode,
-  Frontmatter,
-  FrontmatterField,
-  InlineStyle,
-  ListItem,
-  StyleSpan
-} from './types';
+import { datumWeergave, type Artikel, type Asset, type Blok, type LijstItem, type Pakket, type Tekst, type Titel } from './canonical';
+import { STYLE_ORDER } from './spans';
+import type { InlineStyle } from './types';
 
 /**
- * Vrhl-Blad MDX. The format is fixed by vrhl-blad.example.mdx and this file is
- * the only place that knows it:
+ * Vrhl-Blad MDX, geschreven vanuit het canonieke pakket.
  *
- *   - YAML holds the document settings; kicker, title and subtitle keep italics
- *     and nothing else. The intro is NOT a YAML key, it opens the body.
- *   - Headings in the body are always ###. No # and no ##.
- *   - A quote and a streamer are both a blockquote in curly quotes.
- *   - Images are <Image />, never ![](); a box is one <Frame> with a tint.
- *   - Strikethrough and code are not part of the format, so that text goes flat.
+ * Het pakket is de bron en dit is een van zijn consumenten, net zoals een
+ * Word- of Sanity-adapter dat zou zijn. Dat is het hele punt van een neutraal
+ * formaat: deze schrijver kent `ArticleDocument` niet meer, alleen het pakket.
  *
- * Fields the print source cannot know - edition, tags, seo, video, pdf - are
- * left out rather than guessed, which is what the format asks for.
+ * Het formaat zelf is ongewijzigd, vastgelegd door vrhl-blad.example.mdx:
+ *
+ *   - YAML houdt de documentinstellingen; kicker, title en subtitle houden
+ *     cursief en verder niets. De intro is GEEN YAML-sleutel, die opent de body.
+ *   - Koppen in de body zijn altijd ###. Geen # en geen ##.
+ *   - Een quote is een blockquote in krulquotes.
+ *   - Beeld is <Image />, nooit ![](); een kader is een <Frame> met een tint.
+ *
+ * Twee dingen komen nu uit het pakket in plaats van uit het artikelobject: het
+ * pad van een asset (`assets/<asset-id>.<ext>`, want zo heet het in het pakket)
+ * en de datum, die als weergave uit het datumobject wordt herleid.
  */
 
-/** A box without a printed tint still needs one: the reader's own light tag. */
+/** Een kader zonder gedrukte tint krijgt er toch een: het lichte tag van de lezer. */
 const FRAME_FALLBACK = '#EBE8E4';
 const MAX_SLUG = 80;
 
-export function toMdx(doc: ArticleDocument): string {
-  const body = [intro(doc.frontmatter), ...doc.content.map((node) => block(node))].filter(Boolean).join('\n\n');
-  return `${head(doc)}\n\n${body}\n`;
+/** Het formaat schrijft de maat in het Engels, ook onder een Nederlandse naam. */
+const MATEN: Record<string, string> = {
+  klein: 'small',
+  normaal: 'normal',
+  groot: 'large',
+  extraGroot: 'xlarge'
+};
+
+const STIJLEN: Record<string, InlineStyle> = {
+  vet: 'bold',
+  cursief: 'italic',
+  onderstreept: 'underline'
+};
+
+export function toMdx(pakket: Pakket): string {
+  const artikel = pakket.artikelen?.[0];
+  if (!artikel) return '';
+  const assets = new Map((pakket.assets ?? []).map((item) => [item.id, item]));
+
+  const body = [intro(artikel, assets), ...(artikel.body ?? []).map((blok) => block(blok, assets))]
+    .filter(Boolean)
+    .join('\n\n');
+  return `${head(artikel, assets)}\n\n${body}\n`;
 }
 
 // ─── YAML ────────────────────────────────────────────────────────────────────
 
-function head(doc: ArticleDocument): string {
-  const fm = doc.frontmatter;
+function head(artikel: Artikel, assets: Map<string, Asset>): string {
   const lines = [
     '---',
-    'type: single',
-    key('slug', fm.title ? slug(fm.title) : null),
-    key('date', fm.date),
-    key('kicker', italics(fm, 'chapeau')),
-    key('title', italics(fm, 'title')),
-    key('subtitle', italics(fm, 'subtitle')),
-    ...header(doc),
-    ...names('authors', fm.authors),
-    ...names('photographers', fm.photographers),
-    ...names('illustrators', fm.illustrators),
+    `type: ${artikel.type}`,
+    key('slug', artikel.slug ?? (plain(artikel.titel) ? slug(plain(artikel.titel)) : null)),
+    key('date', datumWeergave(artikel.datum)),
+    key('kicker', titel(artikel.rubriek)),
+    key('title', titel(artikel.titel)),
+    key('subtitle', titel(artikel.ondertitel)),
+    ...header(artikel, assets),
+    ...names('authors', artikel.credits?.auteurs),
+    ...names('photographers', artikel.credits?.fotografen),
+    ...names('illustrators', artikel.credits?.illustratoren),
     '---'
   ];
   return lines.filter((line): line is string => line !== null).join('\n');
 }
 
-function header(doc: ArticleDocument): Array<string | null> {
-  if (!doc.header) return [];
-  return [
-    'header:',
-    `  src: ${scalar(asset(doc.header.file, doc.header.alt))}`,
-    doc.header.alt ? `  alt: ${scalar(oneLine(doc.header.alt))}` : null
-  ];
+function header(artikel: Artikel, assets: Map<string, Asset>): Array<string | null> {
+  const id = artikel.header?.asset;
+  if (!id) return [];
+  const item = assets.get(id);
+  if (!item?.bestand) return [];
+  const alt = artikel.header?.alt ?? item.alt ?? null;
+  return ['header:', `  src: ${scalar(item.bestand)}`, alt ? `  alt: ${scalar(oneLine(alt))}` : null];
 }
 
 function key(name: string, value: string | null): string | null {
   return value ? `${name}: ${scalar(oneLine(value))}` : null;
 }
 
-/** One name per line, the block form the reference uses for every credit list. */
-function names(name: string, values: string[]): Array<string | null> {
-  if (!values.length) return [];
+/** Eén naam per regel, de blokvorm die de referentie voor elke creditlijst gebruikt. */
+function names(name: string, values: string[] | undefined): Array<string | null> {
+  if (!values?.length) return [];
   return [`${name}:`, ...values.map((value) => `  - ${scalar(oneLine(value))}`)];
 }
 
 /**
- * A YAML scalar. Bare where that is unambiguous, JSON-quoted as soon as the
- * value carries a :, #, quote or asterisk, or could be read as something other
- * than a string.
+ * Een YAML-scalar. Kaal waar dat eenduidig is, JSON-quoted zodra de waarde een
+ * :, #, quote of asterisk draagt, of als iets anders dan tekst gelezen kan worden.
  */
 function scalar(value: string): string {
   const risky =
@@ -93,7 +108,7 @@ function scalar(value: string): string {
 function slug(title: string): string {
   return strip(title)
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .replace(/[‘’']/g, '')
     .replace(/[^a-z0-9]+/g, '-')
@@ -104,31 +119,58 @@ function slug(title: string): string {
 
 // ─── Body ────────────────────────────────────────────────────────────────────
 
-function intro(fm: Frontmatter): string | null {
-  const text = italics(fm, 'intro');
+function intro(artikel: Artikel, assets: Map<string, Asset>): string | null {
+  const blocks = artikel.intro ?? [];
+  if (!blocks.length) return null;
+  const text = blocks.map((blok) => block(blok, assets)).filter(Boolean).join('\n\n');
   return text ? `<Intro>\n${text}\n</Intro>` : null;
 }
 
-function block(node: ContentNode): string {
-  switch (node.type) {
-    case 'paragraph':
-      return inline(node.content, node.styles);
-    case 'subheading':
-      // Only ###, and the bold InDesign wraps a heading in comes off.
-      return `### ${strip(node.content)}`;
+function block(blok: Blok, assets: Map<string, Asset>): string {
+  switch (blok.soort) {
+    case 'alinea':
+      return guard(inline(blok.inhoud));
+    case 'kop':
+      // Alleen ###, en het vet dat InDesign om een kop zet gaat eraf.
+      return `### ${strip(plain(blok.inhoud))}`;
     case 'quote':
-    case 'streamer':
-      return blockquote(node.content);
-    case 'list':
-      return node.items.map((item, i) => `${node.ordered ? `${i + 1}.` : '-'} ${listItem(item)}`).join('\n');
-    case 'image':
-      return image(node);
-    case 'insert':
-      return frame(node);
+      return blockquote(plain(blok.inhoud));
+    case 'lijst':
+      return blok.items.map((item, i) => listItem(item, blok.stijl === 'nummering', i, 0)).join('\n');
+    case 'afbeelding':
+      return image(blok, assets);
+    case 'video':
+      // Het formaat van dit blad kent geen video; de converter levert er ook
+      // geen, dus hier valt niets te schrijven in plaats van iets te verzinnen.
+      return '';
+    case 'tekstkader':
+      return frame(blok, assets);
   }
 }
 
-/** A streamer and a pull quote are the same thing here: a quote in krulquotes. */
+/**
+ * Een alinea die begint zoals markdown een lijst, een kop of een quote begint.
+ *
+ * Het blad drukt regels als "- Virolog Marc Van Ranst over taal in
+ * crisissituaties" gewoon als lopende tekst, en run 1 schrijft ze ook als
+ * alinea. Zonder ontsnapping leest die alinea straks terug als een lijst, en dan
+ * is er een blok bij gekomen dat de pagina nooit had. Alleen aan het begin van
+ * een regel, want alleen daar betekent zo'n teken iets.
+ *
+ * De asterisk wordt alleen ontsnapt als er een spatie achter staat: "* " is een
+ * opsommingsteken, terwijl *cursief* nooit met een spatie opent.
+ */
+function guard(text: string): string {
+  return text
+    .split('\n')
+    .map((line) =>
+      line
+        .replace(/^(\s*)([-–•+*>](?=\s)|#{1,6}(?=\s))/, '$1\\$2')
+        .replace(/^(\s*)(\d{1,2})([.)](?=\s))/, '$1$2\\$3')
+    )
+    .join('\n');
+}
+
 function blockquote(text: string): string {
   const bare = oneLine(text)
     .replace(/^[\s"'“”„«»‘’]+/, '')
@@ -136,84 +178,107 @@ function blockquote(text: string): string {
   return `> “${bare}”`;
 }
 
-function listItem(item: ListItem): string {
-  return oneLine(inline(item.content, item.styles));
+function listItem(item: LijstItem, ordered: boolean, index: number, depth: number): string {
+  const pad = '  '.repeat(depth);
+  const line = `${pad}${ordered ? `${index + 1}.` : '-'} ${oneLine(inline(item.inhoud))}`;
+  if (!item.items?.length) return line;
+  const nested = item.items.map((child, i) => listItem(child, ordered, i, depth + 1)).join('\n');
+  return `${line}\n${nested}`;
 }
 
-function image(node: Extract<ContentNode, { type: 'image' }>): string {
-  if (!node.file) return '';
-  const caption = [node.caption, node.credit].filter(Boolean).join(' · ') || null;
+function image(blok: Extract<Blok, { soort: 'afbeelding' }>, assets: Map<string, Asset>): string {
+  const item = assets.get(blok.asset);
+  if (!item?.bestand) return '';
+  // Het pakket houdt het bijschrift in `onderschrift` en de alt apart; het
+  // formaat hier zet dezelfde regel op allebei, zoals het altijd deed.
+  const caption = blok.onderschrift ?? item.onderschrift ?? blok.alt ?? item.alt ?? null;
   const attributes = [
-    `src="${attr(asset(node.file, caption))}"`,
+    `src="${attr(item.bestand)}"`,
     caption ? `alt="${attr(caption)}"` : null,
     caption ? `caption="${attr(caption)}"` : null,
-    `grootte="${node.size}"`
+    `grootte="${MATEN[blok.grootte ?? 'normaal'] ?? 'normal'}"`
   ].filter((line): line is string => line !== null);
 
   return `<Image\n${attributes.map((line) => `  ${line}`).join('\n')}\n/>`;
 }
 
-function frame(node: Extract<ContentNode, { type: 'insert' }>): string {
+function frame(blok: Extract<Blok, { soort: 'tekstkader' }>, assets: Map<string, Asset>): string {
   const attributes = [
-    `  achtergrond="${attr(node.background ?? FRAME_FALLBACK)}"`,
-    node.ink ? `  tekst="${attr(node.ink)}"` : null
+    `  achtergrond="${attr(blok.achtergrondKleur ?? FRAME_FALLBACK)}"`,
+    blok.tekstKleur ? `  tekst="${attr(blok.tekstKleur)}"` : null
   ].filter((line): line is string => line !== null);
 
-  const inner = [node.title ? `### ${strip(node.title)}` : null, ...node.content.map((child) => block(child))]
-    .filter(Boolean)
-    .join('\n\n');
-
+  // De titel van het kader staat in het pakket als de eerste kop erin, dus die
+  // rolt er vanzelf als ### uit; hier hoeft niets apart te gebeuren.
+  const inner = blok.inhoud.map((child) => block(child, assets)).filter(Boolean).join('\n\n');
   return `<Frame\n${attributes.join('\n')}\n>\n${inner}\n</Frame>`;
 }
 
 // ─── Inline ──────────────────────────────────────────────────────────────────
 
-function inline(text: string, spans: StyleSpan[]): string {
-  return wrap(segments(text, spans));
+interface Part {
+  text: string;
+  style: InlineStyle[];
+  link?: string;
+}
+
+function parts(value: Tekst): Part[] {
+  if (typeof value === 'string') return value ? [{ text: value, style: [] }] : [];
+  return value.map((deel) => ({
+    text: deel.tekst,
+    style: (deel.stijlen ?? []).map((s) => STIJLEN[s]).filter(Boolean),
+    link: deel.link
+  }));
+}
+
+function inline(value: Tekst): string {
+  return wrap(parts(value));
+}
+
+function titel(value: Titel | undefined): string | null {
+  if (!value) return null;
+  const out = wrap(
+    typeof value === 'string'
+      ? [{ text: value, style: [] }]
+      : value.map((deel) => ({
+          text: deel.tekst,
+          style: (deel.stijlen ?? []).map(() => 'italic' as InlineStyle)
+        }))
+  );
+  return out || null;
 }
 
 /**
- * A style that every part of the run shares wraps the whole run once, so an
- * italic sentence with a bold name in it is written the way a person would
- * write it - *… **Jan Jansen** …* - and not as three emphasis runs stitched
- * back together.
+ * Een stijl die elk deel van de reeks deelt omsluit de hele reeks één keer, zodat
+ * een cursieve zin met een vette naam erin geschreven wordt zoals een mens hem
+ * zou schrijven, *… **Jan Jansen** …*, en niet als drie aan elkaar geplakte
+ * stukken nadruk.
  */
-function wrap(parts: Segment[]): string {
-  if (!parts.length) return '';
+function wrap(items: Part[]): string {
+  if (!items.length) return '';
 
-  const common = STYLE_ORDER.filter((style) => parts.every((part) => part.style.includes(style)));
-  if (common.length) {
-    const inner = wrap(
-      parts.map((part) => ({ text: part.text, style: part.style.filter((style) => !common.includes(style)) }))
-    );
-    // An asterisk meeting an asterisk is ambiguous in markdown; where that would
-    // happen the run is marked part by part instead, which always reads back.
+  const common = STYLE_ORDER.filter((style) => items.every((part) => part.style.includes(style)));
+  if (common.length && !items.some((part) => part.link)) {
+    const inner = wrap(items.map((part) => ({ ...part, style: part.style.filter((s) => !common.includes(s)) })));
+    // Een asterisk tegen een asterisk is dubbelzinnig in markdown; waar dat zou
+    // gebeuren wordt de reeks deel voor deel gemarkeerd, wat altijd terugleest.
     if (!inner.startsWith('*') && !inner.endsWith('*')) return mark(inner, common);
   }
 
-  return parts.map((part) => mark(links(part.text), part.style)).join('');
+  return items.map((part) => mark(link(part), part.style)).join('');
+}
+
+/** Het adres staat in het pakket, dus hier valt niets meer te herkennen. */
+function link(part: Part): string {
+  if (!part.link) return part.text;
+  const label = part.text.replace(/[[\]]/g, '\\$&');
+  const target = /[()<>\s]/.test(part.link) ? `<${part.link}>` : part.link;
+  return `[${label}](${target})`;
 }
 
 /**
- * A printed address becomes a markdown link. The visible text stays exactly as
- * the page prints it; only the target is filled in.
- */
-function links(text: string): string {
-  return linkify(text)
-    .map((piece) => {
-      if (!piece.href) return piece.text;
-      const label = piece.text.replace(/[[\]]/g, '\\$&');
-      // A bracket in the target is only unambiguous inside <>, which every
-      // markdown reader takes but not every one gets right bare.
-      const target = /[()<>\s]/.test(piece.href) ? `<${piece.href}>` : piece.href;
-      return `[${label}](${target})`;
-    })
-    .join('');
-}
-
-/**
- * The marks the format allows, and only those. Whitespace is kept outside the
- * markers, because *word * is not italic in markdown, it is an asterisk.
+ * De markeringen die het formaat toestaat, en alleen die. Witruimte blijft
+ * buiten de markers, want *woord * is geen cursief in markdown maar een asterisk.
  */
 function mark(text: string, style: InlineStyle[]): string {
   if (!style.length) return text;
@@ -235,46 +300,14 @@ function mark(text: string, style: InlineStyle[]): string {
   return `${lead}${out}${tail}`;
 }
 
-/** Only the italics of a frontmatter field: title and kicker take no bold. */
-function italics(fm: Frontmatter, field: FrontmatterField): string | null {
-  const text = fm[field];
-  if (!text) return null;
-  const spans: StyleSpan[] = fm.italics
-    .filter((entry) => entry.field === field)
-    .map((entry) => ({ text: entry.text, style: ['italic'] }));
-  return inline(text, spans);
+// ─── Tekst ───────────────────────────────────────────────────────────────────
+
+/** De kale tekst van een tekst- of titelveld, zonder enige opmaak. */
+function plain(value: Tekst | Titel | undefined): string {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  return value.map((deel) => deel.tekst).join('');
 }
-
-// ─── Assets ──────────────────────────────────────────────────────────────────
-
-/**
- * assets/{stem}-{8 hex}.{ext}. The hex is taken from the name the bitmap has in
- * the job, so the same image lands on the same path every time it is exported.
- */
-function asset(file: string, label: string | null): string {
-  const extension = /\.png$/i.test(file) ? 'png' : 'jpg';
-  return `assets/${stem(label)}-${fingerprint(file)}.${extension}`;
-}
-
-function stem(label: string | null): string {
-  const words = slug(label ?? '')
-    .split('-')
-    .filter(Boolean)
-    .slice(0, 4)
-    .join('-');
-  return words || 'beeld';
-}
-
-function fingerprint(file: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < file.length; i++) {
-    hash ^= file.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(16).padStart(8, '0').slice(0, 8);
-}
-
-// ─── Text ────────────────────────────────────────────────────────────────────
 
 function attr(value: string): string {
   return oneLine(value).replace(/"/g, '&quot;');
@@ -284,7 +317,7 @@ function oneLine(value: string): string {
   return value.replace(/\s*\n\s*/g, ' ').trim();
 }
 
-/** Emphasis the layout put around a whole heading or title, taken back off. */
+/** Nadruk die de opmaak om een hele kop of titel zette, er weer af gehaald. */
 function strip(text: string): string {
   return oneLine(text).replace(/^\*{1,3}(.+?)\*{1,3}$/, '$1');
 }
