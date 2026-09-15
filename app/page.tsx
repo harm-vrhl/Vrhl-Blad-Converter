@@ -13,10 +13,12 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   RotateCcw,
-  Trash2,
   UploadCloud,
 } from "lucide-react";
 import { ArticleView } from "@/components/ArticleView";
+import { Earlier } from "@/components/article/Earlier";
+import { livePreview } from "@/components/article/preview";
+import { workflowSteps, type StatusLine } from "@/components/article/steps";
 import { Checks } from "@/components/Checks";
 import { Logo } from "@/components/Logo";
 import { MagazineView } from "@/components/MagazineView";
@@ -27,15 +29,6 @@ import { SegmentedControl } from "@/components/SegmentedControl";
 import { Workflow, type WorkflowStep } from "@/components/Workflow";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 // Geen Tooltip hier met opzet: de hints bij de schakelaar en de Sanity-knop zijn
 // juist nodig als die knoppen uit staan, en een tooltip krijgt op een disabled
 // element geen pointer-events. Het native title-attribuut wel.
@@ -54,13 +47,10 @@ import {
 } from "@/lib/client/db";
 import { packageZip, pushToSanity } from "@/lib/client/exports";
 import type { RenderStep } from "@/lib/client/render";
-import { blankFrontmatter, compileArticle, frameTitlesAsHeadings } from "@/lib/compile";
+import { frameTitlesAsHeadings } from "@/lib/compile";
 import { toPackage } from "@/lib/canonical";
 import { toMdx } from "@/lib/mdx";
 import { boxOnly } from "@/lib/imagefilter";
-import { parsePage } from "@/lib/pagemarkup";
-import { applyStyles } from "@/lib/patch";
-import { placeFragments } from "@/lib/place";
 import type { StyleFragment } from "@/lib/agents/styling";
 import type {
   ArticleDocument,
@@ -76,21 +66,6 @@ type Phase = "idle" | "rendering" | "ready" | "running" | "done" | "error";
 type Tab = "paginas" | "artikel" | "json" | "checks";
 
 type Step = WorkflowStep;
-
-/** What each run is called while it is still going. */
-const BUSY: Record<string, string> = {
-  "run 1 leesvolgorde": "tekst uitschrijven…",
-  "opmaak uit de PDF": "opmaak uit de PDF…",
-  "run 2 opmaak": "opmaak van het beeld lezen…",
-  pagina: "bezig…",
-};
-
-interface StatusLine {
-  run: string;
-  page?: number;
-  state: "start" | "ok" | "fail";
-  detail?: string;
-}
 
 export default function Home() {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -569,129 +544,13 @@ export default function Home() {
   }, [job, verdicts]);
   const boxed = useMemo(() => boxOnly(job?.images ?? [], verdicts), [job, verdicts]);
 
-  // The article as it stands right now, built by the same compileArticle the
-  // pipeline finishes with. That is the point: the live preview cannot drift
-  // from the result. The frontmatter appears the moment it is read, and a page
-  // that is still being written is parsed here from run 1's own output, with
-  // the same parser the run uses - so the column fills block by block, and
-  // the page's real result takes over the moment its two runs are done.
-  //
-  // The typography is laid on here too, with the same placer the run uses.
-  // Run 2 no longer waits for run 1, so its marks are usually in before the text
-  // has finished arriving; placing them here is what lets the reader watch a
-  // paragraph appear already set rather than watch it change afterwards.
-  /**
-   * The run, as a handful of steps rather than as its log.
-   *
-   * The pipeline emits a line for every start and every finish of every run on
-   * every page: for a six-page article that is forty entries of "run 1
-   * leesvolgorde · p3". Useful while building it, unreadable while using it. The
-   * same events are folded here into the few things someone actually waits for -
-   * the document-wide stages, and then one row per page - so the list says where
-   * the job IS instead of everything it has done.
-   */
-  const steps: Step[] = useMemo(() => {
-    if (!status.length && !job) return [];
+  const steps: Step[] = useMemo(() => workflowSteps(status, results, job), [status, results, job]);
 
-    const last = (run: string, page?: number) =>
-      [...status].reverse().find((l) => l.run === run && (page === undefined || l.page === page));
-
-    const stage = (
-      key: string,
-      label: string,
-      run: string,
-      kind: Step["kind"] = "stage",
-      detail?: string,
-    ): Step => {
-      const seen = last(run);
-      if (!seen) return { key, label, state: "wacht", detail: "", kind };
-      return {
-        key,
-        label,
-        kind,
-        state: seen.state === "fail" ? "fout" : seen.state === "ok" ? "klaar" : "bezig",
-        detail: detail ?? seen.detail ?? "",
-      };
-    };
-
-    const runState = (line?: StatusLine): Step["state"] | undefined => {
-      if (!line) return undefined;
-      return line.state === "fail" ? "fout" : line.state === "ok" ? "klaar" : "bezig";
-    };
-
-    const out: Step[] = [
-      stage("ocr", "Tekst lezen", "woordindex"),
-      stage("front", "Kop en auteurs", "frontmatter"),
-      stage("beeld", "Beeld beoordelen", "beeldbeoordeling"),
-    ];
-
-    // One row per page, whatever the pipeline happens to be doing on it.
-    for (let page = 1; page <= (job?.pageCount ?? 0); page++) {
-      const done = results[page];
-      const failed = status.find((l) => l.page === page && l.state === "fail");
-      const busy = [...status].reverse().find((l) => l.page === page && l.state === "start");
-
-      out.push({
-        key: `p${page}`,
-        label: `Pagina ${page}`,
-        kind: "page",
-        page,
-        state: failed ? "fout" : done ? "klaar" : busy ? "bezig" : "wacht",
-        detail: failed
-          ? (failed.detail ?? "mislukt")
-          : done
-            ? `${done.blocks.length} blokken · ${done.patches.length} opmaak`
-            : busy
-              ? BUSY[busy.run] ?? busy.run
-              : "",
-        textRun: runState(last("run 1 leesvolgorde", page)),
-        styleRun: runState(
-          last("run 2 opmaak", page) ?? last("opmaak uit de PDF", page),
-        ),
-        coverage: done ? Math.round(done.check.score * 100) : undefined,
-        unknown: done?.check.unknown.length ? done.check.unknown : undefined,
-      });
-    }
-
-    out.push(stage("klaar", "Samenvoegen", "compileren", "compile"));
-    return out;
-  }, [status, results, job]);
-
-  const preview: ArticleDocument | null = useMemo(() => {
-    if (current) return current;
-
-    const pages: PageResult[] = [...pageResults];
-    for (const [key, raw] of Object.entries(text)) {
-      const page = Number(key);
-      if (results[page] || !raw.trim()) continue;
-      const { blocks, continuity } = parsePage(page, raw, approved, boxed);
-      // The run's placed patches once it has sent them, and until then run 2's
-      // own fragments, placed against the text that has arrived so far.
-      const marks = patches[page]?.length
-        ? patches[page]
-        : placeFragments(blocks, fragments[page] ?? []).patches;
-      const applied = applyStyles(blocks, marks);
-      pages.push({
-        page,
-        blocks,
-        patches: marks,
-        dropped: applied.dropped,
-        content: applied.content,
-        continuity,
-        check: { unknown: [], overused: [], score: 1 },
-        warnings: [],
-      });
-    }
-    pages.sort((a, b) => a.page - b.page);
-
-    if (!frontmatter && !pages.length) return null;
-    return compileArticle(
-      frontmatter ?? blankFrontmatter(),
-      pages,
-      { file: job?.filename ?? "", pages: pages.map((p) => p.page) },
-      approved,
-    ).document;
-  }, [current, frontmatter, pageResults, results, text, patches, fragments, approved, boxed, job]);
+  const preview: ArticleDocument | null = useMemo(
+    () =>
+      livePreview({ current, frontmatter, pageResults, results, text, patches, fragments, approved, boxed, job }),
+    [current, frontmatter, pageResults, results, text, patches, fragments, approved, boxed, job],
+  );
 
   const idle = !job && phase !== "rendering";
   const workspace = !showMagazine && !(idle || (phase === "rendering" && !job));
@@ -1184,121 +1043,3 @@ function download(filename: string, content: string) {
   a.click();
   URL.revokeObjectURL(url);
 }
-
-/**
- * Wat er in deze browser eerder is omgezet. Het staat alleen hier, op deze
- * computer: het archief is Sanity. Daarom ook hoeveel ruimte het inneemt, en een
- * knop om op te ruimen.
- */
-function Earlier({
-  jobs,
-  storage,
-  onOpen,
-  onDelete,
-}: {
-  jobs: Array<StoredJob & { bytes: number }>;
-  storage: { usage: number; quota: number } | null;
-  onOpen: (id: string) => void;
-  onDelete: (id: string) => Promise<void>;
-}) {
-  const [removing, setRemoving] = useState<string | null>(null);
-  /** Het artikel waarvoor de vraag "zeker weten?" open staat. */
-  const [confirming, setConfirming] = useState<StoredJob | null>(null);
-  return (
-    <section className="mt-10 w-full" aria-label="Eerder omgezet">
-      <header className="mb-2 flex items-baseline justify-between gap-4">
-        <h3 className="text-sm font-medium">Eerder omgezet</h3>
-        {storage ? (
-          <span className="text-xs text-muted-foreground">
-            {megabytes(storage.usage)} in deze browser
-          </span>
-        ) : null}
-      </header>
-      <ul className="divide-y rounded-xl border bg-card">
-        {jobs.map((j) => (
-          <li key={j.id} className="flex items-center gap-3 px-3 py-2">
-            <button
-              type="button"
-              className="min-w-0 flex-1 text-left"
-              onClick={() => onOpen(j.id)}
-            >
-              <span className="block truncate text-sm">
-                {j.document?.frontmatter.title ?? j.filename}
-              </span>
-              <span className="block truncate text-xs text-muted-foreground">
-                {[
-                  new Date(j.createdAt).toLocaleDateString("nl-NL", { day: "numeric", month: "short" }),
-                  `${j.pageCount} pagina's`,
-                  STATE_LABEL[j.status] ?? j.status,
-                  j.edited ? "gecorrigeerd" : null,
-                  megabytes(j.bytes),
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            </button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="text-muted-foreground hover:text-destructive"
-              disabled={removing === j.id}
-              aria-label={`"${j.filename}" verwijderen`}
-              title="Verwijderen"
-              onClick={() => setConfirming(j)}
-            >
-              {removing === j.id ? <Loader2 className="animate-spin" /> : <Trash2 />}
-            </Button>
-          </li>
-        ))}
-      </ul>
-      <Dialog open={confirming != null} onOpenChange={(open) => !open && setConfirming(null)}>
-        <DialogContent showCloseButton={false}>
-          <DialogHeader>
-            <DialogTitle>Weet je zeker dat je dit wilt verwijderen?</DialogTitle>
-            <DialogDescription>
-              {confirming ? (
-                <>
-                  <span className="font-medium text-foreground">
-                    {confirming.document?.frontmatter.title ?? confirming.filename}
-                  </span>{" "}
-                  staat daarna niet meer opgeslagen in deze browser. Dit kun je niet ongedaan maken.
-                </>
-              ) : null}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button variant="outline">Annuleren</Button>
-            </DialogClose>
-            <Button
-              variant="destructive"
-              onClick={async () => {
-                if (!confirming) return;
-                const id = confirming.id;
-                setConfirming(null);
-                setRemoving(id);
-                await onDelete(id);
-                setRemoving(null);
-              }}
-            >
-              Verwijderen
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </section>
-  );
-}
-
-const STATE_LABEL: Record<string, string> = {
-  uploading: "niet volledig ingelezen",
-  ready: "nog niet omgezet",
-  running: "gestopt tijdens de run",
-  done: "klaar",
-  error: "mislukt",
-};
-
-function megabytes(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0).replace(".", ",")} MB`;
-}
-

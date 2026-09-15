@@ -13,11 +13,14 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { livePreview } from '../components/article/preview';
+import { workflowSteps, type StatusLine } from '../components/article/steps';
 import { toPackage } from '../lib/canonical';
 import { compileArticle, frameTitlesAsHeadings } from '../lib/compile';
 import { boxOnly, rescueBoxed } from '../lib/imagefilter';
 import { stitch } from '../lib/magazine/stitch';
 import { toMdx } from '../lib/mdx';
+import type { StoredJob } from '../lib/client/db';
 import type { ExtractedImage, Frontmatter, ImageVerdict, PageResult } from '../lib/types';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -64,7 +67,68 @@ function article(dir: string): Outputs | null {
     out.package = pakket;
     out.mdx = attempt(() => toMdx(pakket as Parameters<typeof toMdx>[0]));
   }
+
+  // What the article screen derives while a run streams in: the steps in the
+  // sidebar and the live preview. The status lines and run 1's text are made up
+  // here, the same for every job, so the only thing that varies is the job.
+  const job = read<StoredJob>(dir, 'job.json');
+  const boxed = boxOnly(images, verdicts);
+  const byPage = Object.fromEntries(pages.map((p) => [p.page, p]));
+  const [first, second, ...rest] = pages;
+  out.steps = attempt(() => workflowSteps(STATUS(pages.map((p) => p.page)), first ? { [first.page]: first } : {}, job));
+  out.previewDone = attempt(() =>
+    livePreview({ current: null, frontmatter: stored.frontmatter, pageResults: pages, results: byPage, text: {}, patches: {}, fragments: {}, approved, boxed, job })
+  );
+  const text: Record<number, string> = {};
+  for (const p of [second, ...rest].filter(Boolean)) text[p.page] = RAW(images.find((i) => i.page === p.page)?.id ?? 'img-p99-01');
+  out.previewLive = attempt(() =>
+    livePreview({
+      current: null,
+      frontmatter: null,
+      pageResults: first ? [first] : [],
+      results: first ? { [first.page]: first } : {},
+      text,
+      patches: second ? { [second.page]: second.patches } : {},
+      fragments: {},
+      approved,
+      boxed,
+      job
+    })
+  );
   return out;
+}
+
+function STATUS(pages: number[]): StatusLine[] {
+  const lines: StatusLine[] = [
+    { run: 'woordindex', state: 'start' },
+    { run: 'woordindex', state: 'ok', detail: 'klaar' },
+    { run: 'frontmatter', state: 'start' },
+    { run: 'beeldbeoordeling', state: 'fail', detail: 'mislukt' }
+  ];
+  pages.forEach((page, i) => {
+    lines.push({ run: 'run 1 leesvolgorde', page, state: 'start' });
+    if (i % 3 === 1) lines.push({ run: 'run 2 opmaak', page, state: 'ok' });
+    if (i % 3 === 2) lines.push({ run: 'opmaak uit de PDF', page, state: 'fail', detail: 'kapot' });
+  });
+  return lines;
+}
+
+function RAW(imageId: string): string {
+  return [
+    '[continues-from-previous: ja]',
+    'loopt door vanaf de vorige pagina.',
+    '',
+    '## Een tussenkop',
+    '> Een pull quote',
+    '~ Een streamer',
+    '- een lijstitem',
+    `[image: ${imageId} | bijschrift | credit]`,
+    '[insert: Een kader | #333333 | #F7F6F2]',
+    'alinea van het kader',
+    `[image: ${imageId} | in het kader | -]`,
+    '[/insert]',
+    '[continues-on-next: nee]'
+  ].join('\n');
 }
 
 function magazine(dir: string): Outputs | null {
