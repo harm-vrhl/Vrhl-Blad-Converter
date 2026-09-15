@@ -114,7 +114,7 @@ Daarna knipt de browser per gekozen artikel de hele pagina's uit het magazine
 en run. **Knip nooit binnen een pagina** (geen CropBox, geen regio's): een
 gedeelde pagina gaat heel mee.
 
-Omzetten gebeurt op de achtergrond in `components/MagazineView.tsx`: uitlezen
+Omzetten gebeurt op de achtergrond in `components/magazine/useMagazine.ts`: uitlezen
 (renderen, rippen, opslaan) één artikel tegelijk, want dat is zwaar in het
 tabblad; de runs lopen naast elkaar, `MAGAZINE_ARTICLE_CONCURRENCY` tegelijk.
 De interface springt niet naar een artikel; de gebruiker opent het zelf.
@@ -244,6 +244,14 @@ lib/llm/ratelimit.ts  houdt zich aan de limieten die Mistral in elk antwoord mel
 lib/llm/mistral.ts    OCR, alleen woorden, één pagina per call
 app/                  UI en API-routes
 components/           Workflow (de zijbalk), ArticleView, MagazineView, Checks, PageThumbs, StoredImage
+components/article/   het artikelscherm uit app/page.tsx: useArticleRun (alle state van
+                      een run en de vier resets, die bewust verschillen), useSettings,
+                      useSidebar, useExports, en de stukken scherm (AppHeader,
+                      StartScreen, WorkflowSidebar, ExportToolbar, Earlier). steps.ts
+                      en preview.ts zijn rekenen zonder React en staan in npm run golden
+components/magazine/  de magazinestand uit MagazineView: useMagazine (state, analyse,
+                      omzetten op de achtergrond), MagazineSidebar, MagazineStart,
+                      PageGrid, ArticleRow; labels.ts rekent en staat in npm run golden
 scripts/golden.ts     het vangnet: rekent de vaste stappen door op .data/jobs en vergelijkt
 .data/jobs/<id>/      alleen nog oude jobs van vóór de browseropslag; niets leest
                       of schrijft hier meer
@@ -332,7 +340,7 @@ gecompileerde artikel:
 - **pdf.js rendert via `requestAnimationFrame`**, en een achtergrondtab bevriest
   dat. Daarom `intent: 'print'` in `lib/client/render.ts`. Haal dat niet weg,
   anders hangt het renderen zodra de gebruiker wegklikt.
-- **Prettier herschrijft `app/page.tsx`** (quotes, JSX-indentatie). Exacte
+- **Prettier herschrijft `app/page.tsx` en `components/`** (quotes, JSX-indentatie). Exacte
   string-vervangingen kunnen daardoor missen. Lees het bestand voor je patcht.
 - **Stop de dev-server voor je `.next` weggooit.** Anders krijg je
   `Cannot find module './873.js'`, een stale chunk-cache, geen codefout. Wil je
