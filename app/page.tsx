@@ -10,6 +10,8 @@ import {
   FileJson,
   Loader2,
   Package,
+  PanelLeftClose,
+  PanelLeftOpen,
   RotateCcw,
   UploadCloud,
 } from "lucide-react";
@@ -132,6 +134,16 @@ export default function Home() {
   const [converting, setConverting] = useState(false);
   const uploadDisabled = phase === "rendering" || phase === "running" || converting;
   const showMagazine = mode === "magazine" && view === "magazine";
+  /**
+   * De Workflow-zijbalk: open of weggeklapt. Op een breed scherm schuift het
+   * werkgebied mee; op een smal scherm (`narrow`) ligt het eiland eroverheen en
+   * begint het dicht, zodat het artikel niet tussen balk en rand wordt geperst.
+   * De keuze op een breed scherm wordt onthouden.
+   */
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [narrow, setNarrow] = useState(false);
+  /** Pas na de eerste meting animeren, anders schuift de balk bij het laden al weg. */
+  const [sidebarAnimates, setSidebarAnimates] = useState(false);
   /** Het afgeronde artikel met de correcties erin: wat de exports krijgen. */
   const current = edited ?? doc;
 
@@ -200,6 +212,50 @@ export default function Home() {
       live = false;
     };
   }, []);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1023px)");
+    const measure = () => {
+      setNarrow(query.matches);
+      let remembered: string | null = null;
+      try {
+        remembered = window.localStorage.getItem(SIDEBAR_KEY);
+      } catch {
+        remembered = null;
+      }
+      setSidebarOpen(query.matches ? false : remembered !== "dicht");
+    };
+    measure();
+    query.addEventListener("change", measure);
+    const frame = window.requestAnimationFrame(() => setSidebarAnimates(true));
+    return () => {
+      query.removeEventListener("change", measure);
+      window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((open) => {
+      if (!narrow) {
+        try {
+          window.localStorage.setItem(SIDEBAR_KEY, open ? "dicht" : "open");
+        } catch {
+          /* een onthouden keuze is gemak, geen noodzaak */
+        }
+      }
+      return !open;
+    });
+  }, [narrow]);
+
+  // Over het werkgebied heen (smal scherm) sluit Escape de balk.
+  useEffect(() => {
+    if (!narrow || !sidebarOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [narrow, sidebarOpen]);
 
   /** Resolves true when the run reached its end with an article. */
   const convert = useCallback(async (resume = false): Promise<boolean> => {
@@ -624,16 +680,33 @@ export default function Home() {
   }, [current, frontmatter, pageResults, results, text, patches, fragments, approved, job]);
 
   const idle = !job && phase !== "rendering";
+  const workspace = !showMagazine && !(idle || (phase === "rendering" && !job));
   const noticeOk = !!notice && notice.startsWith("Naar Sanity");
 
   return (
     <div className="flex h-svh flex-col overflow-hidden">
       <header className="z-20 shrink-0 border-b bg-white/80 backdrop-blur-md">
         <div className="flex h-14 items-center justify-between gap-4 px-6">
-          <h1 className="flex items-baseline gap-2 text-sm tracking-tight">
-            <span className="font-semibold">Vrhl</span>
-            <span className="text-muted-foreground">Blad</span>
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="flex items-baseline gap-2 text-sm tracking-tight">
+              <span className="font-semibold">Vrhl</span>
+              <span className="text-muted-foreground">Blad</span>
+            </h1>
+            {workspace ? (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground"
+                aria-controls="workflow-sidebar"
+                aria-expanded={sidebarOpen}
+                aria-label={sidebarOpen ? "Zijbalk inklappen" : "Zijbalk openen"}
+                title={sidebarOpen ? "Zijbalk inklappen" : "Zijbalk openen"}
+                onClick={toggleSidebar}
+              >
+                {sidebarOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
+              </Button>
+            ) : null}
+          </div>
           <div className="flex min-w-0 items-center justify-end gap-2">
             {mode === "magazine" && view === "artikel" ? (
               <Button variant="ghost" size="sm" onClick={() => setView("magazine")}>
@@ -842,10 +915,37 @@ export default function Home() {
         </div>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1">
+          {/* De ruimte die het eiland inneemt. Die groeit en krimpt, zodat het
+              werkgebied gelijkmatig meeschuift; het eiland zelf houdt zijn breedte
+              en schuift alleen, dus de inhoud ervan loopt niet opnieuw af. */}
+          <div
+            aria-hidden
+            className={cn(
+              "shrink-0",
+              sidebarAnimates &&
+                "transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+            )}
+            style={{ width: sidebarOpen && !narrow ? "calc(24rem + 1.5rem)" : 0 }}
+          />
+          {narrow && sidebarOpen ? (
+            <button
+              type="button"
+              aria-label="Zijbalk sluiten"
+              className="absolute inset-0 z-20 cursor-default bg-black/10 backdrop-blur-[1px]"
+              onClick={() => setSidebarOpen(false)}
+            />
+          ) : null}
           <aside
-            className="flex min-h-0 w-96 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar"
+            id="workflow-sidebar"
             aria-label="Omzetten"
+            inert={!sidebarOpen}
+            className={cn(
+              "absolute inset-y-3 left-3 z-30 flex w-96 max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-2xl border border-[var(--sidebar-border)] bg-[var(--sidebar)] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_32px_-8px_rgba(0,0,0,0.12)]",
+              sidebarAnimates &&
+                "transition-[translate,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+              sidebarOpen ? "translate-x-0 opacity-100" : "-translate-x-[calc(100%+1.5rem)] opacity-0",
+            )}
           >
             <Workflow
               steps={steps}
@@ -1059,6 +1159,7 @@ interface Settings {
 }
 
 const PROVIDER_KEY = "vrhl.provider";
+const SIDEBAR_KEY = "vrhl.zijbalk";
 
 function download(filename: string, content: string) {
   const url = URL.createObjectURL(
