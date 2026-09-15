@@ -184,6 +184,22 @@ context van één woord (`"In "`) alles weg.
 Anders wordt een fragment verankerd aan een kop die in een ander blok staat en
 raakt het onplaatsbaar.
 
+**Een alineagrens wist de context níet.** De PDF weet niet waar run 1 een alinea
+begint, dus `before` kan over twee alinea's lopen: `"het rapport. Hoe laat je"`,
+waarvan "het rapport." de vorige alinea sluit. Vindt de plaatser de hele context
+niet, dan probeert hij het laatste stuk ervan, woord voor woord korter (nooit
+onder vier letters). Anders viel zo'n fragment terug op "waar het ook staat" en
+belandde de cursief van "digitale policy entrepreneurs" op de eerdere
+"Digitale policy entrepreneurs", die al cursief was.
+
+**Eén plek, één markering, en context gaat voor.** De plaatser werkt in twee
+rondes: eerst alle fragmenten die hun context terugvinden, daarna pas de terugval
+voor de rest, en een plek die al bezet is telt niet meer mee. Anders pakt een
+fragment dat in de intro staat (en dus nergens in de lopende tekst) de plek van
+hetzelfde woord dat er wél met context bij hoort. Nagerekend op 172 opgeslagen
+pagina's: dubbel geplaatste markeringen van 20 naar 7, en zes fragmenten die
+eerder op de verkeerde plek of nergens landden, staan nu goed.
+
 ### 4.8 Woorden staan niet netjes in de PDF
 
 Voor de opmaak maakt dit niet uit — daar tellen letters en worden spaties

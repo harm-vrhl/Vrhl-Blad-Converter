@@ -46,7 +46,8 @@ ${
       available
         .map(
           (img) =>
-            `  ${img.id} - printed ${img.placed.w}x${img.placed.h}pt at x=${img.placed.x} y=${img.placed.y}, ${img.areaPct}% of the page`
+            `  ${img.id} - printed ${img.placed.w}x${img.placed.h}pt at x=${img.placed.x} y=${img.placed.y}, ${img.areaPct}% of the page` +
+            (img.nearby ? `; the text printed right next to it reads: "${img.nearby}"` : '')
         )
         .join('\n') || '  (none)'
     }

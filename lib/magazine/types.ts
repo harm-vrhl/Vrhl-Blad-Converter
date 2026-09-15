@@ -106,7 +106,9 @@ export interface MapArticle {
    */
   opening: number[];
   /** Where the finding came from. */
-  sources: Array<'pagina' | 'inhoudsopgave' | 'grenscontrole'>;
+  sources: Array<'pagina' | 'inhoudsopgave' | 'grenscontrole' | 'inhoudscontrole'>;
+  /** De regel uit de inhoudsopgave waar dit artikel uit voortkomt, als die er is. */
+  toc?: TocEntry;
   /** Everything a person should look at before trusting this entry. */
   notes: string[];
   /** False when a note means the pages themselves may be wrong. */
@@ -124,7 +126,39 @@ export interface OffsetSegment {
   support: number;
 }
 
+/**
+ * Een pagina binnen een artikel uit de inhoudsopgave waar iets op staat dat er
+ * misschien niet bij hoort: een stuk met een eigen kop en een andere rubriek.
+ */
+export interface ContentQuestion {
+  id: string;
+  /** Het artikel waar de pagina nu bij staat. */
+  article: string;
+  pdf: number;
+  /** De stukken op die pagina waar de twijfel over gaat. */
+  pieces: PagePiece[];
+}
+
+export type ContentVerdict = 'hoort-erbij' | 'deels' | 'hoort-er-niet-bij' | 'onduidelijk';
+
+export interface ContentCheck {
+  question: string;
+  article: string;
+  pdf: number;
+  verdict: ContentVerdict;
+  /** Bij `deels`: de titels van de stukken die wel bij het artikel horen. */
+  belonging: string[];
+  reason: string;
+  model: string;
+}
+
 export interface MagazineMap {
+  /**
+   * Waar de artikelen op gebaseerd zijn. Met een bruikbare inhoudsopgave is elke
+   * regel daarvan een artikel, en wordt per pagina bepaald wat erbij hoort; zonder
+   * worden de artikelen uit de pagina's zelf afgeleid.
+   */
+  basis: 'inhoudsopgave' | 'paginas';
   segments: OffsetSegment[];
   /** Pairs of PDF pages that face each other, as the page runs and the rules agreed. */
   spreads: Array<[number, number]>;
@@ -133,6 +167,9 @@ export interface MagazineMap {
   /** Pages that belong to no article, and why. */
   skipped: Array<{ pdf: number; kind: PageKind }>;
   boundaries: BoundaryCheck[];
+  /** Pagina's waarvan nog moet worden bekeken of alles erop bij het artikel hoort. */
+  questions: ContentQuestion[];
+  contents: ContentCheck[];
   notes: string[];
 }
 
@@ -141,6 +178,7 @@ export type MagazineEvent =
   | { type: 'scan'; scan: PageScan }
   | { type: 'map'; map: MagazineMap }
   | { type: 'boundary'; check: BoundaryCheck }
+  | { type: 'content'; check: ContentCheck }
   | {
       type: 'done';
       map: MagazineMap;

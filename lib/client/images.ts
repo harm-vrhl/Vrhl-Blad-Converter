@@ -2,6 +2,7 @@
 
 import type { PDFPageProxy, PageViewport } from 'pdfjs-dist';
 import { findMosaics, MIN_KEPT, TEXT_GUARD, type Box, type TextRun } from '../mosaic';
+import { textNear, type PlacedText } from '../nearby';
 import { withTimeout } from '../util';
 
 export interface RippedImage {
@@ -25,6 +26,8 @@ export interface RippedImage {
    * text box ending up in the picture, and they are left out altogether.
    */
   partOf?: number | 'tekst';
+  /** De tekst die er direct onder, boven of naast staat: een naam, een bijschrift. */
+  nearby?: string;
 }
 
 /** The page as it was rendered, to see what is drawn around a sliced picture. */
@@ -142,6 +145,21 @@ export async function ripImages(
   }
 
   if (raster && out.length >= 3) await mergeMosaics(pdfjs, page, viewport, raster, out);
+
+  // Welke tekst er bij elk beeld staat, voor wie het moet plaatsen.
+  if (out.length) {
+    const content = await page.getTextContent().catch(() => null);
+    const texts: PlacedText[] = (content?.items ?? []).flatMap((item) => {
+      if (!('str' in item) || !item.str.trim()) return [];
+      const t = pdfjs.Util.transform(viewport.transform, item.transform) as number[];
+      const h = Math.hypot(t[2], t[3]);
+      return [{ x: t[4], y: t[5] - h, w: item.width * viewport.scale, h, str: item.str }];
+    });
+    for (const image of out) {
+      const near = textNear(image.placed, texts);
+      if (near) image.nearby = near;
+    }
+  }
   return out;
 }
 

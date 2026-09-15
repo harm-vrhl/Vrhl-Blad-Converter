@@ -32,7 +32,9 @@ Je sleept een PDF in de dropzone. De browser doet per pagina:
    en de pagina in vier stukken (`tiles`) voor als de opmaak van het beeld gelezen
    moet worden.
 2. **Beeld rippen** (`ripImages`): de ingesloten bitmaps worden direct uit de PDF
-   gehaald, op hun eigen resolutie, met hun plek op de pagina.
+   gehaald, op hun eigen resolutie, met hun plek op de pagina. Per beeld wordt uit
+   de tekstlaag ook de tekst ernaast bewaard (`nearby`): de naam onder een
+   portret, een bijschrift. Zo zet run 1 elk portret bij de juiste naam.
 3. **Mozaïeken samenvoegen** (`findMosaics` in `lib/mosaic.ts`): een kaart of
    infographic die in de PDF in tientallen stukken is geknipt, wordt weer één
    beeld. De stukken krijgen `partOf` en worden nooit los geplaatst.
@@ -148,20 +150,32 @@ Het geeft per pagina terug:
    per meerderheid. Eén verkeerd gelezen nummer telt niet mee.
 2. **Spreads** (`pairSpreads`): twee pagina's die van elkaar zeggen dat ze
    tegenover elkaar liggen. Zijn ze het oneens, dan beslist het even nummer links.
-3. **Artikelen**: van begin tot begin. Advertenties ertussen worden overgeslagen,
-   sprongen gevolgd, en een fotopagina zonder tekst gaat mee met de pagina
-   ertegenover.
-4. **Inhoudsopgave** (`matchToc`): als tweede bron naast de gevonden artikelen.
-   Wijkt die af, dan krijgt het artikel de markering *nakijken*.
+3. **Artikelen, met inhoudsopgave** (`byContents`): de **inhoudsopgave is
+   leidend**. Elke regel is een artikel, vanaf de pagina die hij noemt tot de
+   volgende regel. Advertenties en colofon ertussen worden overgeslagen.
+   Doorlopende tekst en stukken met dezelfde rubriek of kop horen er zonder vragen
+   bij: Personalia wordt één artikel met alle namen. Staat er een stuk met een
+   eigen kop en een andere rubriek, dan wordt die pagina een **vraag**.
+4. **Artikelen, zonder inhoudsopgave** (`byPages`): van begin tot begin uit de
+   pagina's zelf. Sprongen worden gevolgd, een fotopagina zonder tekst gaat mee
+   met de pagina ertegenover, en korte berichten onder één rubriek blijven bij
+   elkaar.
 5. **Opening**: per artikel de beginpagina, of de spread als het op een
    linkerpagina begint.
 
-**2c. Grenscontrole** (`checkBoundary`, prompt `grenscontrole`), per overgang
+**2c. Inhoudscontrole** (`checkContent`, prompt `inhoudscontrole`), per vraag
 
-Voor elke overgang van artikel A naar B: waar houdt A echt op? Het model beslist
-**op inhoud** en krijgt beide artikelen beschreven. Mogelijke antwoorden:
-`eindigt-ervoor`, `eindigt-op-beginpagina`, `loopt-verder`, `onduidelijk`. Bij
-`onduidelijk` kijkt het gewone model nog een keer (`strongModelFor`).
+Alleen met een inhoudsopgave. Voor elke twijfelpagina: hoort het stuk bij het
+artikel uit de inhoudsopgave? Antwoorden: `hoort-erbij`, `deels`,
+`hoort-er-niet-bij`, `onduidelijk`. Wat er niet bij hoort (een partnerpagina, een
+los stuk) wordt een eigen artikel met de notitie *staat niet in de inhoudsopgave*.
+
+**2c'. Grenscontrole** (`checkBoundary`, prompt `grenscontrole`), per overgang
+
+Alleen zonder inhoudsopgave. Voor elke overgang van artikel A naar B: waar houdt A
+echt op? Antwoorden: `eindigt-ervoor`, `eindigt-op-beginpagina`, `loopt-verder`,
+`onduidelijk`. Bij `onduidelijk` kijkt in beide controles het gewone model nog een
+keer (`strongModelFor`).
 
 Het resultaat is de **kaart** (`MagazineMap`, `map.json`): een lijst artikelen
 (`MapArticle`) met pagina's, gedrukte nummers, opening, gedeelde pagina's en
@@ -210,8 +224,8 @@ verzoeken, een verzoek duurt hooguit 800 seconden en is hooguit 4,5 MB. Daarom:
 |---|---|
 | OCR | `mistral-ocr-latest` (`MISTRAL_OCR_MODEL`) |
 | Artikel schrijven (frontmatter, beeld, run 1, run 2) | `gpt-5.6-terra` (`OPENAI_MODEL`) of Mistral Medium (`MISTRAL_MODEL`) |
-| Magazine analyseren (paginascan, grenscontrole) | `gpt-5.6-luna` (`OPENAI_MAGAZINE_MODEL`) |
-| Grenscontrole bij twijfel | het gewone schrijfmodel |
+| Magazine analyseren (paginascan, inhouds- of grenscontrole) | `gpt-5.6-luna` (`OPENAI_MAGAZINE_MODEL`) |
+| Inhouds- of grenscontrole bij twijfel | het gewone schrijfmodel |
 
 Elke run telt tokens in een **ledger** (`Ledger`). Aan het eind zie je tijd,
 tokens en kosten. Alle prompts staan in `prompts.json` en zijn aan te passen

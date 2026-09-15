@@ -430,6 +430,7 @@ export function MagazineView({
   const scanned = Object.values(scans);
   const lastOf = (run: string) => [...status].reverse().find((l) => l.run === run && l.page == null);
   const boundaryTotal = Number(/(\d+) overgang/.exec(lastOf("grenscontrole")?.detail ?? "")?.[1] ?? 0);
+  const contentTotal = map?.questions?.length ?? 0;
   const chosenCount = map?.articles.filter((a) => selected.has(a.id)).length ?? 0;
   const states = Object.values(progress);
   const conversion = {
@@ -478,16 +479,29 @@ export function MagazineView({
                   </ul>
                 ) : null}
               </Stage>
-              <Stage
-                icon={Split}
-                label="Grenscontrole"
-                state={stateOf(lastOf("grenscontrole"))}
-                detail={
-                  lastOf("grenscontrole")?.state === "start"
-                    ? `${map?.boundaries.length ?? 0}/${boundaryTotal} overgangen`
-                    : lastOf("grenscontrole")?.detail
-                }
-              />
+              {map?.basis === "inhoudsopgave" || lastOf("inhoudscontrole") ? (
+                <Stage
+                  icon={ListChecks}
+                  label="Inhoud toewijzen"
+                  state={stateOf(lastOf("inhoudscontrole"))}
+                  detail={
+                    lastOf("inhoudscontrole")?.state === "start"
+                      ? `${status.filter((l) => l.run === "inhoudscontrole" && l.page != null && l.state !== "start").length}/${contentTotal} pagina's`
+                      : lastOf("inhoudscontrole")?.detail
+                  }
+                />
+              ) : (
+                <Stage
+                  icon={Split}
+                  label="Grenscontrole"
+                  state={stateOf(lastOf("grenscontrole"))}
+                  detail={
+                    lastOf("grenscontrole")?.state === "start"
+                      ? `${map?.boundaries.length ?? 0}/${boundaryTotal} overgangen`
+                      : lastOf("grenscontrole")?.detail
+                  }
+                />
+              )}
               {Object.keys(progress).length ? (
                 <Stage
                   icon={Sparkles}
@@ -748,7 +762,7 @@ function ArticleRow({
           ) : null}
           {article.sources.includes("inhoudsopgave") ? (
             <ListChecks className="size-3.5" aria-label="in de inhoudsopgave">
-              <title>staat ook in de inhoudsopgave</title>
+              <title>staat in de inhoudsopgave</title>
             </ListChecks>
           ) : null}
         </span>

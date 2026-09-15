@@ -116,6 +116,12 @@ export interface ExtractedImage {
    * pieces were left out because merging them would have taken a text box along.
    */
   partOf?: string;
+  /**
+   * De tekst die direct naast het beeld gedrukt staat, uit de tekstlaag van de
+   * PDF: de naam onder een portret, een bijschrift. Dat zegt wie of wat het is
+   * zonder dat iemand het gezicht hoeft te herkennen.
+   */
+  nearby?: string;
 }
 
 export type ImageKind = 'photo' | 'illustration' | 'portrait' | 'chart' | 'logo' | 'ornament' | 'rule' | 'advert' | 'other';

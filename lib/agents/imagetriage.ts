@@ -72,7 +72,8 @@ export async function triageImages(
           .map(
             (img) =>
               `${img.id}: ${where(img, size)}, bitmap ${img.width}x${img.height}px at ${img.dpi} dpi, ${img.areaPct}% of the page` +
-              (img.parts ? `, merged from ${img.parts} sliced pieces and rendered from the page` : '')
+              (img.parts ? `, merged from ${img.parts} sliced pieces and rendered from the page` : '') +
+              (img.nearby ? `; text printed right next to it: "${img.nearby}"` : '')
           )
           .join('\n'),
         '',

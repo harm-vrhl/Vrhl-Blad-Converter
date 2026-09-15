@@ -114,6 +114,15 @@ staat, plaatst hij niet.
 Alleen wat beide stappen overleeft krijgt run 1 te zien, en die moet ze allemaal
 een plek geven.
 
+**Wie staat erop.** Bij het rippen wordt uit de tekstlaag van de PDF gehaald welke
+tekst direct onder, boven of naast elk beeld staat (`nearby`, `lib/nearby.ts`):
+de naam onder een portret, een bijschrift, of het woord ADVERTENTIE. Die tekst
+gaat mee naar de beeldbeoordeling en naar run 1. Op een pagina met zes portretten
+op een rij hoeft niemand dan te raden welk gezicht bij welke naam hoort: run 1
+zet elk portret bij de persoon die de tekstlaag ernaast noemt. Een portret naast
+een naam in een rij mensen (personalia, benoemingen) is altijd inhoud, hoe klein
+ook.
+
 ### Opgeknipte beelden
 
 Een kaart, infographic of illustratie zit vaak niet als één bitmap in de PDF. De
@@ -265,11 +274,18 @@ magazine.pdf
      spreads: twee pagina's die het van elkaar zeggen, bij onenigheid
      beslist het even paginanummer links;
      offset uit de paginanummers (een misser telt niet mee,
-     een bijlage met eigen nummering wel), artikelen van begin tot begin,
-     advertenties ertussen overgeslagen, naast de inhoudsopgave gelegd
+     een bijlage met eigen nummering wel).
+     MET INHOUDSOPGAVE (de gewone situatie): die is leidend.
+       elke regel is een artikel, vanaf de pagina die hij noemt
+       tot de volgende regel; advertenties ertussen overgeslagen;
+       doorlopende tekst en stukken met dezelfde rubriek horen erbij
+       (Personalia is één artikel, niet één per persoon)
+     ZONDER: artikelen van begin tot begin uit de pagina's zelf
   |
-  Grenscontrole, per overgang, parallel            <- goedkoop model
-     waar houdt het vorige artikel op? beslist op inhoud.
+  Inhoudscontrole, per twijfelpagina               <- goedkoop model
+     staat er een stuk met een eigen kop en een andere rubriek?
+     hoort het bij het artikel uit de inhoudsopgave, deels, of niet?
+     (zonder inhoudsopgave: grenscontrole per overgang)
      twijfel? dan kijkt het gewone model nog een keer
   |
   een lijst artikelen: aanvinken en Omzetten
@@ -297,9 +313,11 @@ Tijdens het omzetten blijf je op de lijst. Per artikel zie je hoe ver het is
 (uitlezen, pagina's klaar, kosten) en met *Openen* kijk je in een artikel dat
 klaar is; *Magazine* in de kop brengt je terug, en wat nog loopt gaat door.
 
-Wat de lijst niet zeker weet, zegt hij: *nakijken* als de grenscontrole twijfelde
-of de inhoudsopgave iets anders zegt, *deelt een pagina* als twee artikelen op
-dezelfde pagina staan. Een gedeelde pagina gaat nu nog in zijn geheel mee met
+Wat de lijst niet zeker weet, zegt hij: *nakijken* als de controle twijfelde of
+een stuk niet in de inhoudsopgave staat (zoals een partnerpagina tussen twee
+artikelen), *deelt een pagina* als twee artikelen op dezelfde pagina staan. Leest
+de paginascan één regel van de inhoudsopgave als twee (een kop en de beschrijving
+eronder), dan wordt dat weer één artikel. Een gedeelde pagina gaat nu nog in zijn geheel mee met
 beide artikelen.
 
 ## Prompts tweaken

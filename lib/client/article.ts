@@ -93,6 +93,7 @@ async function storePage(job: StoredJob, rendered: RenderedPage): Promise<void> 
       areaPct: rip.areaPct,
       dpi: rip.dpi,
       ...(rip.parts && rip.parts > 1 ? { parts: rip.parts } : {}),
+      ...(rip.nearby ? { nearby: rip.nearby } : {}),
       // The render points at the merged picture by its place in the list; ids are
       // given here, by the same place.
       ...(rip.partOf === 'tekst'

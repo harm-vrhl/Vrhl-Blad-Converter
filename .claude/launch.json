@@ -4,7 +4,12 @@
     {
       "name": "vrhl-dev",
       "runtimeExecutable": "env",
-      "runtimeArgs": ["NEXT_DIST_DIR=.next-preview", "npx", "next", "dev"],
+      "runtimeArgs": [
+        "NEXT_DIST_DIR=.next-preview",
+        "npx",
+        "next",
+        "dev"
+      ],
       "port": 3210,
       "autoPort": true
     }

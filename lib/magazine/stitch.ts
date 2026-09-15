@@ -1,11 +1,14 @@
 import { normalizeForCompare } from '../util';
 import type {
   BoundaryCheck,
+  ContentCheck,
+  ContentQuestion,
   MagazineMap,
   MagazinePage,
   MapArticle,
   OffsetSegment,
   PageKind,
+  PagePiece,
   PageScan,
   TocEntry
 } from './types';
@@ -194,32 +197,319 @@ export function pairSpreads(
 
 // ─── Articles ────────────────────────────────────────────────────────────────
 
+/** Minder regels dan dit en de inhoudsopgave is te mager om op te bouwen. */
+const MIN_TOC_ENTRIES = 3;
+
 export function stitch(scans: PageScan[], pages: MagazinePage[]): MagazineMap {
   const ordered = [...scans].sort((a, b) => a.pdf - b.pdf);
   const { segments, notes } = fitOffsets(ordered, pages);
   const spreads = pairSpreads(ordered, pages, segments, notes);
+  const toc = uniqueToc(ordered.flatMap((s) => s.toc));
+
+  // De inhoudsopgave is leidend: wat de redactie een artikel noemt, is er een.
+  // Pas zonder bruikbare inhoudsopgave worden de artikelen uit de pagina's zelf
+  // afgeleid.
+  const contents = byContents(toc, ordered, pages, segments, notes);
+  let map: MagazineMap;
+  if (contents) {
+    map = {
+      basis: 'inhoudsopgave',
+      segments,
+      spreads,
+      articles: contents.articles,
+      toc,
+      skipped: contents.skipped,
+      boundaries: [],
+      questions: contents.questions,
+      contents: [],
+      notes
+    };
+  } else {
+    const found = byPages(ordered, segments, spreads, notes);
+    matchToc(found.articles, toc, segments, notes);
+    map = {
+      basis: 'paginas',
+      segments,
+      spreads,
+      articles: found.articles,
+      toc,
+      skipped: found.skipped,
+      boundaries: [],
+      questions: [],
+      contents: [],
+      notes
+    };
+  }
+  refresh(map);
+  return map;
+}
+
+function create(
+  articles: MapArticle[],
+  title: string | null,
+  rubric: string | null,
+  sources: MapArticle['sources']
+): MapArticle {
+  const article: MapArticle = {
+    id: `a${articles.length + 1}`,
+    title,
+    rubric,
+    about: '',
+    pages: [],
+    folios: [],
+    shared: [],
+    opening: [],
+    sources: [...sources],
+    notes: [],
+    certain: true
+  };
+  articles.push(article);
+  return article;
+}
+
+/** Dezelfde regel twee keer gelezen, van twee inhoudsopgavepagina's of twee kolommen. */
+function uniqueToc(entries: TocEntry[]): TocEntry[] {
+  const out: TocEntry[] = [];
+  for (const entry of entries) {
+    if (!entry.title?.trim()) continue;
+    const twin = out.find((e) => folioNumber(e.page) === folioNumber(entry.page) && similar(e.title, entry.title));
+    if (!twin) out.push(entry);
+  }
+  return out;
+}
+
+/**
+ * De artikelen zoals de inhoudsopgave ze noemt.
+ *
+ * Elke regel opent een artikel op de pagina die hij noemt, en de pagina's tot de
+ * volgende regel horen erbij, advertenties en colofon niet meegerekend. Wat daar
+ * staat en duidelijk bij het artikel hoort (doorlopende tekst, een kader met
+ * dezelfde rubriek, een reeks korte berichten onder de kop van de rubriek) gaat
+ * zonder vragen mee. Een stuk met een eigen kop en een andere rubriek misschien
+ * niet: die pagina wordt een vraag, en de inhoudscontrole beslist.
+ *
+ * Zo wordt een rubriek als Personalia één artikel met al zijn namen, in plaats van
+ * een artikel per persoon.
+ */
+function byContents(
+  toc: TocEntry[],
+  scans: PageScan[],
+  pages: MagazinePage[],
+  segments: OffsetSegment[],
+  notes: string[]
+): { articles: MapArticle[]; questions: ContentQuestion[]; skipped: MagazineMap['skipped'] } | null {
+  if (!toc.length) return null;
+  if (!segments.length) {
+    notes.push(
+      "Er is een inhoudsopgave, maar zonder paginanummers is die niet naast de pagina's te leggen; de artikelen komen uit de pagina's zelf."
+    );
+    return null;
+  }
+
+  const scanOf = new Map(scans.map((s) => [s.pdf, s]));
+  const lastPdf = Math.max(...pages.map((p) => p.pdf));
+  const placed: Array<{ entry: TocEntry; pdf: number }> = [];
+  for (const entry of toc) {
+    const pdf = pdfOf(segments, entry.page);
+    if (pdf == null || !scanOf.has(pdf)) {
+      notes.push(`Inhoudsopgave: "${entry.title}" op pagina ${entry.page} valt buiten dit PDF-bestand.`);
+      continue;
+    }
+    placed.push({ entry, pdf });
+  }
+  if (placed.length < MIN_TOC_ENTRIES) {
+    notes.push(
+      `De inhoudsopgave heeft maar ${placed.length} bruikbare regel(s); de artikelen komen uit de pagina's zelf.`
+    );
+    return null;
+  }
+
+  // Eén regel die als twee is gelezen: een kop met zijn beschrijving eronder
+  // ("DROOGTE" en dan een zin over de droogte). Meer regels op een pagina dan er
+  // koppen op staan, dan zijn de regels die bij geen kop passen de beschrijving.
+  for (const pdf of new Set(placed.map((p) => p.pdf))) {
+    const here = placed.filter((p) => p.pdf === pdf);
+    if (here.length < 2) continue;
+    const heads = (scanOf.get(pdf)?.pieces ?? []).filter((piece) => piece.starts && piece.title);
+    let keep = here.filter(
+      (p) => !here.some((other) => other !== p && p.entry.rubric && similar(p.entry.rubric, other.entry.title))
+    );
+    if (keep.length > Math.max(1, heads.length)) {
+      const matching = keep.filter((p) => heads.some((h) => similar(h.title as string, p.entry.title)));
+      keep = matching.length ? matching.slice(0, Math.max(1, heads.length)) : keep.slice(0, 1);
+    }
+    for (const dropped of here.filter((p) => !keep.includes(p))) {
+      placed.splice(placed.indexOf(dropped), 1);
+      notes.push(`Inhoudsopgave: "${dropped.entry.title}" op pagina ${dropped.entry.page} is de beschrijving bij een andere regel, geen eigen artikel.`);
+    }
+  }
+
+  // In leesvolgorde: op pagina, en op één pagina op de plek van de kop.
+  const rank = ({ entry, pdf }: { entry: TocEntry; pdf: number }) => {
+    const pieces = scanOf.get(pdf)?.pieces ?? [];
+    const at = pieces.findIndex((p) => p.starts && p.title && similar(p.title, entry.title));
+    return at < 0 ? pieces.length : at;
+  };
+  placed.sort((a, b) => a.pdf - b.pdf || rank(a) - rank(b));
+
+  const articles: MapArticle[] = [];
+  const questions: ContentQuestion[] = [];
+
+  placed.forEach(({ entry, pdf }, i) => {
+    const scan = scanOf.get(pdf) as PageScan;
+    const sharing = placed.filter((p) => p.pdf === pdf).length;
+    const lastOnPage = !placed.slice(i + 1).some((p) => p.pdf === pdf);
+    const nextStart = placed.find((p) => p.pdf > pdf)?.pdf ?? lastPdf + 1;
+
+    const heading = headlineFor(entry, scan, sharing);
+    const article = create(articles, heading.title, heading.rubric, ['inhoudsopgave', 'pagina']);
+    article.toc = entry;
+    article.about = heading.about;
+    if (heading.note) article.notes.push(heading.note);
+    add(article, pdf);
+    if (scan.error) {
+      article.notes.push(`De beginpagina kon niet worden bekeken: ${scan.error}`);
+      article.certain = false;
+    } else if (scan.kind !== 'artikel') {
+      article.notes.push(`De beginpagina is volgens de paginascan: ${scan.kind}.`);
+    }
+
+    // Twee regels op één pagina: de pagina's erna gaan naar de laatste in leesvolgorde.
+    if (!lastOnPage) {
+      article.notes.push('Deelt de beginpagina met een ander artikel uit de inhoudsopgave.');
+      return;
+    }
+
+    let doubted = false;
+    for (let p = pdf + 1; p < nextStart; p++) {
+      const page = scanOf.get(p);
+      if (!page) continue;
+      if (page.error) {
+        add(article, p);
+        article.notes.push(`PDF-pagina ${p} kon niet worden bekeken en is voor de zekerheid meegenomen.`);
+        article.certain = false;
+        continue;
+      }
+      if (NOT_EDITORIAL.includes(page.kind)) {
+        article.notes.push(`PDF-pagina ${p} (${page.kind}) overgeslagen.`);
+        doubted = false;
+        continue;
+      }
+      if (!page.pieces.length) {
+        // A photo page inside the article.
+        add(article, p);
+        continue;
+      }
+      // Doorlopende tekst hoort bij wat ervoor liep. Liep daar iets anders dan
+      // het artikel, dan is ook de doorloop een vraag.
+      const doubtful = page.pieces.filter((piece) => (piece.starts || doubted) && !belongsTo(piece, article, entry));
+      add(article, p, page.pieces.find((piece) => !doubtful.includes(piece))?.about);
+      if (doubtful.length) {
+        questions.push({ id: `q${questions.length + 1}`, article: article.id, pdf: p, pieces: doubtful });
+      }
+      doubted = doubtful.length > 0;
+    }
+
+    // The last paragraphs can stand on the page where the next article opens.
+    const next = scanOf.get(nextStart);
+    if (next && !next.error) {
+      const opens = next.pieces.findIndex((piece) => piece.starts);
+      if (opens > 0 && next.pieces.slice(0, opens).every((piece) => !piece.starts)) {
+        add(article, nextStart);
+        article.notes.push(`Eindigt op PDF-pagina ${nextStart}, waar het volgende artikel begint.`);
+      }
+    }
+
+    // "lees verder op pagina 64"
+    for (const page of [...article.pages]) {
+      for (const piece of scanOf.get(page)?.pieces ?? []) {
+        const target = pdfOf(segments, piece.continuesOn);
+        if (target == null || article.pages.includes(target)) continue;
+        add(article, target);
+        article.notes.push(`Loopt verder op pagina ${piece.continuesOn} (PDF ${target}).`);
+      }
+    }
+  });
+
+  // Vóór de eerste regel: wat daar redactioneel is, staat niet in de inhoudsopgave.
+  const first = placed[0].pdf;
+  let extra: MapArticle | null = null;
+  for (const scan of scans) {
+    if (scan.pdf >= first) break;
+    if (scan.error || NOT_EDITORIAL.includes(scan.kind) || !scan.pieces.length) continue;
+    for (const piece of scan.pieces) {
+      if (piece.starts || !extra) {
+        extra = create(articles, piece.title, piece.rubric, ['pagina']);
+        extra.about = piece.about;
+        extra.notes.push('Staat niet in de inhoudsopgave.');
+        extra.certain = false;
+      }
+      add(extra, scan.pdf);
+    }
+  }
+
+  const taken = new Set(articles.flatMap((a) => a.pages));
+  const skipped = scans.filter((s) => !taken.has(s.pdf)).map((s) => ({ pdf: s.pdf, kind: s.kind }));
+  articles.sort((a, b) => (a.pages[0] ?? 0) - (b.pages[0] ?? 0));
+  notes.push(
+    `De inhoudsopgave is leidend: ${placed.length} regels.${
+      questions.length ? ` Op ${questions.length} pagina('s) staat iets waarvan nog wordt bekeken of het erbij hoort.` : ''
+    }`
+  );
+  return { articles, questions, skipped };
+}
+
+/** De kop zoals de pagina hem drukt, als die bij de regel uit de inhoudsopgave past. */
+function headlineFor(
+  entry: TocEntry,
+  scan: PageScan,
+  sharing: number
+): { title: string | null; rubric: string | null; about: string; note: string | null } {
+  const starting = scan.pieces.filter((p) => p.starts && p.title);
+  const match = starting.find((p) => similar(p.title as string, entry.title));
+  const fromToc = `In de inhoudsopgave: "${entry.title}".`;
+  if (match) {
+    const same = normalizeForCompare(match.title as string) === normalizeForCompare(entry.title);
+    return { title: match.title, rubric: match.rubric ?? entry.rubric, about: match.about, note: same ? null : fromToc };
+  }
+  // Eén kop op de pagina en één regel die ernaar wijst: dat is hem, ook in andere woorden.
+  if (sharing === 1 && starting.length === 1) {
+    return { title: starting[0].title, rubric: starting[0].rubric ?? entry.rubric, about: starting[0].about, note: fromToc };
+  }
+  return { title: entry.title, rubric: entry.rubric, about: scan.pieces[0]?.about ?? '', note: null };
+}
+
+/** Of een stuk zonder twijfel bij dit artikel hoort: dezelfde kop, of dezelfde rubriek. */
+function belongsTo(piece: PagePiece, article: MapArticle, entry: TocEntry): boolean {
+  const titles = [entry.title, article.title].filter((t): t is string => Boolean(t));
+  if (piece.title && titles.some((t) => similar(piece.title as string, t))) return true;
+  const rubrics = [entry.rubric, article.rubric, entry.title].filter((r): r is string => Boolean(r));
+  return Boolean(piece.rubric && rubrics.some((r) => similar(piece.rubric as string, r)));
+}
+
+/** De artikelen uit de pagina's zelf, voor een magazine zonder bruikbare inhoudsopgave. */
+function byPages(
+  ordered: PageScan[],
+  segments: OffsetSegment[],
+  spreads: Array<[number, number]>,
+  notes: string[]
+): { articles: MapArticle[]; skipped: MagazineMap['skipped'] } {
   const partner = partners(spreads);
   const articles: MapArticle[] = [];
   const skipped: MagazineMap['skipped'] = [];
   /** "lees verder op pagina 64": which article the page it names belongs to. */
   const jumps = new Map<number, MapArticle>();
   let current: MapArticle | null = null;
+  /**
+   * De rubriek die als geheel een artikel is: geopend door een kop die de rubriek
+   * zelf is (Personalia), of door een stuk zonder eigen kop. Korte berichten met
+   * die rubriek horen erbij, ook als er iets anders tussen staat.
+   */
+  let section = null as MapArticle | null;
 
   const open = (title: string | null, rubric: string | null): MapArticle => {
-    const article: MapArticle = {
-      id: `a${articles.length + 1}`,
-      title,
-      rubric,
-      about: '',
-      pages: [],
-      folios: [],
-      shared: [],
-      opening: [],
-      sources: ['pagina'],
-      notes: [],
-      certain: true
-    };
-    articles.push(article);
+    const article = create(articles, title, rubric, ['pagina']);
+    if (rubric && (!title || similar(title, rubric))) section = article;
     return article;
   };
 
@@ -263,8 +553,22 @@ export function stitch(scans: PageScan[], pages: MagazinePage[]): MagazineMap {
         continue;
       }
 
+      // Een kort bericht onder de kop van een rubriek (Personalia, Nieuws in het
+      // kort) is een deel van die rubriek, geen artikel op zich.
+      // Dat is te zien aan de rubriek van het bericht, en aan een rubriek die kort
+      // daarvoor als geheel werd geopend.
+      const underSection = Boolean(
+        piece.starts &&
+          section &&
+          piece.rubric &&
+          similar(piece.rubric, section.rubric ?? section.title ?? '') &&
+          section.pages.some((p) => scan.pdf - p <= 2)
+      );
+
       let owner: MapArticle;
-      if (piece.starts || !current) {
+      if (underSection) {
+        owner = current = section!;
+      } else if (piece.starts || !current) {
         owner = current = open(piece.title, piece.rubric);
         openedHere = true;
         if (!piece.starts) {
@@ -310,12 +614,7 @@ export function stitch(scans: PageScan[], pages: MagazinePage[]): MagazineMap {
     }
   }
 
-  const toc = ordered.flatMap((s) => s.toc);
-  matchToc(articles, toc, segments, notes);
-
-  const map: MagazineMap = { segments, spreads, articles, toc, skipped, boundaries: [], notes };
-  refresh(map);
-  return map;
+  return { articles, skipped };
 }
 
 function add(article: MapArticle, pdf: number, about?: string): void {
@@ -377,8 +676,13 @@ function similar(a: string, b: string): boolean {
 
 // ─── Boundaries ──────────────────────────────────────────────────────────────
 
-/** The transitions worth a second look: every article that follows another. */
+/**
+ * The transitions worth a second look: every article that follows another. Met de
+ * inhoudsopgave als basis liggen de grenzen al vast; daar is de inhoudscontrole de
+ * tweede blik.
+ */
 export function transitions(map: MagazineMap): Array<{ from: MapArticle; to: MapArticle }> {
+  if (map.basis === 'inhoudsopgave') return [];
   const byStart = [...map.articles].filter((a) => a.pages.length).sort((a, b) => a.pages[0] - b.pages[0]);
   const out: Array<{ from: MapArticle; to: MapArticle }> = [];
   for (let i = 1; i < byStart.length; i++) {
@@ -431,6 +735,62 @@ export function applyBoundary(map: MagazineMap, check: BoundaryCheck): void {
   }
   map.boundaries = [...map.boundaries.filter((b) => !(b.from === check.from && b.to === check.to)), check];
   refresh(map);
+}
+
+/**
+ * Wat de inhoudscontrole zei over een pagina, over de lijst gelegd. Alle
+ * antwoorden worden op volgorde van pagina toegepast, zodat een stuk dat over twee
+ * pagina's loopt bij hetzelfde losse artikel terechtkomt.
+ */
+export function applyContent(map: MagazineMap, check: ContentCheck): void {
+  const article = map.articles.find((a) => a.id === check.article);
+  const question = (map.questions ?? []).find((q) => q.id === check.question);
+  if (!article || !question) return;
+  if (!article.sources.includes('inhoudscontrole')) article.sources.push('inhoudscontrole');
+  const pdf = question.pdf;
+
+  switch (check.verdict) {
+    case 'hoort-erbij':
+      break;
+    case 'deels': {
+      const outside = question.pieces.filter(
+        (piece) => !check.belonging.some((title) => piece.title && similar(piece.title, title))
+      );
+      separate(map, pdf, outside, `Staat op PDF-pagina ${pdf} naast "${article.title ?? article.id}": ${check.reason}`);
+      article.notes.push(`Deelt PDF-pagina ${pdf} met iets dat niet in de inhoudsopgave staat: ${check.reason}`);
+      break;
+    }
+    case 'hoort-er-niet-bij':
+      if (article.pages[0] !== pdf) article.pages = article.pages.filter((p) => p !== pdf);
+      separate(map, pdf, question.pieces, check.reason);
+      article.notes.push(`PDF-pagina ${pdf} hoort niet bij dit artikel: ${check.reason}`);
+      break;
+    case 'onduidelijk':
+      article.notes.push(`Niet duidelijk of alles op PDF-pagina ${pdf} erbij hoort: ${check.reason}`);
+      article.certain = false;
+      break;
+  }
+  map.contents = [...(map.contents ?? []).filter((c) => c.question !== check.question), check];
+  map.articles.sort((a, b) => (a.pages[0] ?? 0) - (b.pages[0] ?? 0));
+  map.skipped = map.skipped.filter((s) => !map.articles.some((a) => a.pages.includes(s.pdf)));
+  refresh(map);
+}
+
+/** Stukken die niet bij hun artikel horen, als eigen artikel, gemarkeerd als buiten de inhoudsopgave. */
+function separate(map: MagazineMap, pdf: number, pieces: PagePiece[], reason: string): void {
+  for (const piece of pieces) {
+    // Loopt het door van een los stuk op de pagina ervoor, dan hoort het daarbij.
+    const prior = !piece.starts ? map.articles.find((a) => !a.toc && a.pages.includes(pdf - 1)) : undefined;
+    if (prior) {
+      add(prior, pdf);
+      continue;
+    }
+    const extra = create(map.articles, piece.title, piece.rubric, ['pagina', 'inhoudscontrole']);
+    extra.about = piece.about;
+    add(extra, pdf);
+    extra.notes.push('Staat niet in de inhoudsopgave.', reason);
+    extra.certain = false;
+  }
 }
 
 function partners(spreads: Array<[number, number]>): Map<number, number> {

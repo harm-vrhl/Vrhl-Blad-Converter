@@ -1,11 +1,14 @@
 'use client';
 
 import type { ArticleSide, BoundaryInput } from '../agents/boundary';
+import type { ContentInput } from '../agents/contentcheck';
 import type { PageScanInput } from '../agents/pagescan';
-import { applyBoundary, folioOf, isSpread, stitch, transitions } from '../magazine/stitch';
+import { applyBoundary, applyContent, folioOf, isSpread, stitch, transitions } from '../magazine/stitch';
 import type {
   BoundaryCheck,
   BoundaryVerdict,
+  ContentCheck,
+  ContentVerdict,
   Magazine,
   MagazineEvent,
   MagazineMap,
@@ -26,9 +29,11 @@ import { postJson, runForm } from './post';
  * 1. every page between its two neighbours, with a cheap model: what is on it,
  *    and which neighbour it faces
  * 2. rules put those pages in a row: offset, spreads, articles, table of contents
- * 3. every transition from one article to the next: where does the previous one
- *    really end? When the cheap model cannot tell, the provider's own model looks
- *    once more.
+ * 3. met een bruikbare inhoudsopgave is die leidend: elke regel is een artikel, en
+ *    alleen een pagina met een stuk dat er misschien niet bij hoort wordt
+ *    nagekeken (inhoudscontrole). Zonder inhoudsopgave: bij elke overgang waar
+ *    het vorige artikel echt ophoudt (grenscontrole). Kan het goedkope model het
+ *    niet zeggen, dan kijkt het eigen model van de aanbieder nog een keer.
  *
  * Dit liep als één verzoek van een uur op de server. Nu is elke pagina en elke
  * overgang een eigen kort verzoek, en rijgt de browser ze aaneen.
@@ -166,69 +171,16 @@ async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): Asy
     detail: `${map.articles.length} artikel(en)${map.toc.length ? `, inhoudsopgave met ${map.toc.length} regels` : ''}`
   };
 
-  // 3. The transitions. Every input is built before anything is applied, so one
-  //    verdict moving a page cannot change what the next check is shown.
-  const pairs = transitions(map);
-  yield { type: 'status', run: 'grenscontrole', state: 'start', detail: `${pairs.length} overgang(en)` };
   const byPdf = new Map(pages.map((p) => [p.pdf, p]));
   const scanOf = new Map(scans.map((s) => [s.pdf, s]));
-  const inputs = pairs.map(({ from, to }) => {
-    const start = to.pages[0];
-    const prior = from.pages.filter((p) => p < start);
-    const last = prior.length ? prior[prior.length - 1] : start;
-    const input: BoundaryInput = {
-      previous: side(from, scanOf),
-      next: side(to, scanOf),
-      lastPageName: name(map, last),
-      startPageName: name(map, start),
-      lastImage: byPdf.get(last)?.image ?? '',
-      startImage: byPdf.get(start)?.image ?? '',
-      lastText: (byPdf.get(last)?.text ?? '').slice(-BOUNDARY_TEXT),
-      startText: (byPdf.get(start)?.text ?? '').slice(0, BOUNDARY_TEXT),
-      samePage: last === start
-    };
-    return { from, to, input };
-  });
 
-  const ask = (input: BoundaryInput, strong: boolean) =>
-    lane(async () => {
-      const names = input.samePage ? [input.startImage] : [input.lastImage, input.startImage];
-      const result = await postJson<{
-        answer: { verdict: BoundaryVerdict; continuesOn: string | null; reason: string };
-        model: string;
-        usage: RunUsage;
-      }>('/api/magazine/boundary', runForm({ provider, strong, ...input }, await files(names), 'De grenscontrole'));
-      add(result.usage);
-      return result;
-    });
-
-  const checking = new EventQueue<MagazineEvent>();
-  const checks = Promise.all(
-    inputs.map(async ({ from, to, input }) => {
-      const label = `${from.title ?? from.id} → ${to.title ?? to.id}`;
-      checking.push({ type: 'status', run: 'grenscontrole', state: 'start', page: to.pages[0], detail: label });
-      try {
-        let { answer, model } = await ask(input, false);
-        if (answer.verdict === 'onduidelijk') {
-          checking.push({ type: 'status', run: 'grenscontrole', state: 'start', page: to.pages[0], detail: `${label}: tweede blik` });
-          ({ answer, model } = await ask(input, true));
-        }
-        const check: BoundaryCheck = { from: from.id, to: to.id, ...answer, model };
-        applyBoundary(map, check);
-        checking.push({ type: 'boundary', check });
-        checking.push({ type: 'map', map });
-        checking.push({ type: 'status', run: 'grenscontrole', state: 'ok', page: to.pages[0], detail: `${label}: ${answer.verdict}` });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        from.notes.push(`De grenscontrole met "${to.title ?? to.id}" mislukte: ${message}`);
-        from.certain = false;
-        checking.push({ type: 'status', run: 'grenscontrole', state: 'fail', page: to.pages[0], detail: `${label}: ${message}` });
-      }
-    })
-  ).finally(() => checking.close());
-  for await (const event of checking.drain()) yield event;
-  await checks;
-  yield { type: 'status', run: 'grenscontrole', state: 'ok', detail: `${map.boundaries.length} van ${pairs.length} gecontroleerd` };
+  // 3. Met de inhoudsopgave als basis: per twijfelpagina of de inhoud erbij hoort.
+  //    Zonder: waar elk artikel ophoudt.
+  if (map.basis === 'inhoudsopgave') {
+    yield* contentChecks(map);
+  } else {
+    yield* boundaryChecks(map);
+  }
 
   magazine.map = map;
   magazine.status = 'done';
@@ -243,6 +195,145 @@ async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): Asy
     cost: { total: bill.cost, currency: bill.currency },
     ms: Date.now() - started
   };
+
+  async function* contentChecks(map: MagazineMap): AsyncGenerator<MagazineEvent, void, void> {
+    const questions = map.questions ?? [];
+    yield {
+      type: 'status',
+      run: 'inhoudscontrole',
+      state: 'start',
+      detail: `${questions.length} pagina('s) om na te kijken`
+    };
+    const ask = (input: ContentInput, strong: boolean) =>
+      lane(async () => {
+        const result = await postJson<{
+          answer: { verdict: ContentVerdict; belonging: string[]; reason: string };
+          model: string;
+          usage: RunUsage;
+        }>('/api/magazine/content', runForm({ provider, strong, ...input }, await files([input.image]), 'De inhoudscontrole'));
+        add(result.usage);
+        return result;
+      });
+
+    const checking = new EventQueue<MagazineEvent>();
+    const found: ContentCheck[] = [];
+    const work = Promise.all(
+      questions.map(async (question) => {
+        const article = map.articles.find((a) => a.id === question.article);
+        const page = byPdf.get(question.pdf);
+        if (!article?.toc || !page) return;
+        const label = `${article.title ?? article.id}, PDF ${question.pdf}`;
+        checking.push({ type: 'status', run: 'inhoudscontrole', state: 'start', page: question.pdf, detail: label });
+        const input: ContentInput = {
+          toc: { title: article.toc.title, rubric: article.toc.rubric, page: article.toc.page },
+          article: {
+            title: article.title,
+            rubric: article.rubric,
+            about: article.pages
+              .filter((pdf) => pdf !== question.pdf)
+              .flatMap((pdf) => scanOf.get(pdf)?.pieces.slice(0, 1).map((p) => p.about) ?? [])
+              .filter(Boolean)
+          },
+          pageName: name(map, question.pdf),
+          image: page.image,
+          text: page.text.slice(0, BOUNDARY_TEXT),
+          pieces: question.pieces.map((p) => ({ title: p.title, rubric: p.rubric, about: p.about, starts: p.starts }))
+        };
+        try {
+          let { answer, model } = await ask(input, false);
+          if (answer.verdict === 'onduidelijk') {
+            checking.push({ type: 'status', run: 'inhoudscontrole', state: 'start', page: question.pdf, detail: `${label}: tweede blik` });
+            ({ answer, model } = await ask(input, true));
+          }
+          const check: ContentCheck = { question: question.id, article: article.id, pdf: question.pdf, ...answer, model };
+          found.push(check);
+          checking.push({ type: 'content', check });
+          checking.push({ type: 'status', run: 'inhoudscontrole', state: 'ok', page: question.pdf, detail: `${label}: ${answer.verdict}` });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          article.notes.push(`De inhoudscontrole van PDF-pagina ${question.pdf} mislukte: ${message}`);
+          article.certain = false;
+          checking.push({ type: 'status', run: 'inhoudscontrole', state: 'fail', page: question.pdf, detail: `${label}: ${message}` });
+        }
+      })
+    ).finally(() => checking.close());
+    for await (const event of checking.drain()) yield event;
+    await work;
+
+    // Op volgorde van pagina, zodat een los stuk over twee pagina's één artikel wordt.
+    for (const check of found.sort((a, b) => a.pdf - b.pdf)) applyContent(map, check);
+    yield { type: 'map', map };
+    yield {
+      type: 'status',
+      run: 'inhoudscontrole',
+      state: 'ok',
+      detail: `${found.length} van ${questions.length} bekeken, ${map.articles.length} artikel(en)`
+    };
+  }
+
+  async function* boundaryChecks(map: MagazineMap): AsyncGenerator<MagazineEvent, void, void> {
+    // The transitions. Every input is built before anything is applied, so one
+    // verdict moving a page cannot change what the next check is shown.
+    const pairs = transitions(map);
+    yield { type: 'status', run: 'grenscontrole', state: 'start', detail: `${pairs.length} overgang(en)` };
+    const inputs = pairs.map(({ from, to }) => {
+      const start = to.pages[0];
+      const prior = from.pages.filter((p) => p < start);
+      const last = prior.length ? prior[prior.length - 1] : start;
+      const input: BoundaryInput = {
+        previous: side(from, scanOf),
+        next: side(to, scanOf),
+        lastPageName: name(map, last),
+        startPageName: name(map, start),
+        lastImage: byPdf.get(last)?.image ?? '',
+        startImage: byPdf.get(start)?.image ?? '',
+        lastText: (byPdf.get(last)?.text ?? '').slice(-BOUNDARY_TEXT),
+        startText: (byPdf.get(start)?.text ?? '').slice(0, BOUNDARY_TEXT),
+        samePage: last === start
+      };
+      return { from, to, input };
+    });
+
+    const ask = (input: BoundaryInput, strong: boolean) =>
+      lane(async () => {
+        const names = input.samePage ? [input.startImage] : [input.lastImage, input.startImage];
+        const result = await postJson<{
+          answer: { verdict: BoundaryVerdict; continuesOn: string | null; reason: string };
+          model: string;
+          usage: RunUsage;
+        }>('/api/magazine/boundary', runForm({ provider, strong, ...input }, await files(names), 'De grenscontrole'));
+        add(result.usage);
+        return result;
+      });
+
+    const checking = new EventQueue<MagazineEvent>();
+    const checks = Promise.all(
+      inputs.map(async ({ from, to, input }) => {
+        const label = `${from.title ?? from.id} → ${to.title ?? to.id}`;
+        checking.push({ type: 'status', run: 'grenscontrole', state: 'start', page: to.pages[0], detail: label });
+        try {
+          let { answer, model } = await ask(input, false);
+          if (answer.verdict === 'onduidelijk') {
+            checking.push({ type: 'status', run: 'grenscontrole', state: 'start', page: to.pages[0], detail: `${label}: tweede blik` });
+            ({ answer, model } = await ask(input, true));
+          }
+          const check: BoundaryCheck = { from: from.id, to: to.id, ...answer, model };
+          applyBoundary(map, check);
+          checking.push({ type: 'boundary', check });
+          checking.push({ type: 'map', map });
+          checking.push({ type: 'status', run: 'grenscontrole', state: 'ok', page: to.pages[0], detail: `${label}: ${answer.verdict}` });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          from.notes.push(`De grenscontrole met "${to.title ?? to.id}" mislukte: ${message}`);
+          from.certain = false;
+          checking.push({ type: 'status', run: 'grenscontrole', state: 'fail', page: to.pages[0], detail: `${label}: ${message}` });
+        }
+      })
+    ).finally(() => checking.close());
+    for await (const event of checking.drain()) yield event;
+    await checks;
+    yield { type: 'status', run: 'grenscontrole', state: 'ok', detail: `${map.boundaries.length} van ${pairs.length} gecontroleerd` };
+  }
 }
 
 function side(article: MapArticle, scans: Map<number, PageScan>): ArticleSide {

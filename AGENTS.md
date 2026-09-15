@@ -71,20 +71,36 @@ terug naar losse thumbnails.
 ## Magazinestand
 
 Naast één artikel kan er een heel magazine in. Dat is een **losse run** die
-alleen uitzoekt waar de artikelen staan (`lib/magazine/analyze.ts`); hij deelt
+alleen uitzoekt waar de artikelen staan (`lib/client/analyze.ts`); hij deelt
 niets met de artikel-run behalve de chatclient.
+
+**De inhoudsopgave is leidend.** Wat de redactie in de inhoudsopgave een artikel
+noemt, is een artikel; wat de paginascan als losse stukken ziet, is dat niet
+vanzelf. Zet dit nooit terug naar "elk stuk met een kop is een artikel": dan
+wordt Personalia een artikel per persoon.
 
 1. `paginascan` per pagina, parallel, met het goedkope model (`magazineModelFor`).
    Krijgt de vorige, deze en de volgende page image en de tekstlaag, geen OCR,
    en zegt welke buur tegenover deze pagina ligt (`facing`).
 2. `stitch` in `lib/magazine/stitch.ts`: regels. Offset uit de gelezen
    paginanummers per meerderheid, spreads (`pairSpreads`: twee pagina's die het
-   van elkaar zeggen; bij onenigheid beslist het even nummer links), fotopagina's
-   zonder tekst bij de pagina ertegenover, artikelen van begin tot begin, sprongen
-   ("lees verder op pagina 64"), advertenties overslaan, inhoudsopgave ernaast.
-3. `grenscontrole` per overgang, parallel. Beslist op inhoud. Bij `onduidelijk`
-   één tweede blik met het gewone model (`strongModelFor`). Alle invoer wordt
-   gebouwd voordat er iets wordt toegepast.
+   van elkaar zeggen; bij onenigheid beslist het even nummer links). Dan:
+   - **met inhoudsopgave** (`byContents`, `map.basis = 'inhoudsopgave'`, vanaf 3
+     bruikbare regels): elke regel een artikel, van zijn pagina tot de volgende
+     regel, zonder advertenties en colofon. Een stuk dat doorloopt of dezelfde
+     rubriek of kop heeft (`belongsTo`) hoort erbij. Een stuk met een eigen kop
+     en een andere rubriek wordt een `ContentQuestion`. Een kop en zijn
+     beschrijving die als twee regels zijn gelezen, worden één.
+   - **zonder** (`byPages`): artikelen van begin tot begin uit de pagina's,
+     sprongen gevolgd, fotopagina's bij de pagina ertegenover, en korte berichten
+     onder een rubriek die als geheel opende (`section`) bij die rubriek.
+3. Met inhoudsopgave `inhoudscontrole` per vraag (`checkContent`,
+   `/api/magazine/content`): hoort-erbij, deels, hoort-er-niet-bij. Wat er niet
+   bij hoort wordt een eigen artikel met de notitie "Staat niet in de
+   inhoudsopgave". Antwoorden worden pas na afloop en op paginavolgorde toegepast
+   (`applyContent`). Zonder inhoudsopgave `grenscontrole` per overgang. Bij
+   `onduidelijk` in beide gevallen één tweede blik met het gewone model
+   (`strongModelFor`).
 
 **Denk in spreads, niet in pagina's.** Een opening loopt vaak over twee pagina's
 (kop links, intro rechts). `MapArticle.opening` zegt welke pagina's dat zijn en
@@ -214,7 +230,9 @@ lib/client/render.ts  rasteriseren in de browser
 lib/client/images.ts  de bitmaps uit de PDF rippen met pdf.js
 lib/agents/pagescan.ts   magazine: wat staat er op deze ene pagina
 lib/agents/boundary.ts   magazine: waar houdt het vorige artikel op
-lib/magazine/         stitch (regels), types
+lib/magazine/         stitch (regels: inhoudsopgave leidend, anders pagina's), types
+lib/agents/contentcheck.ts  magazine: hoort dit bij het artikel uit de inhoudsopgave
+lib/nearby.ts         de tekst naast een beeld (naam onder een portret), uit de tekstlaag
 lib/client/analyze.ts    magazine: de analyse geregisseerd vanuit de browser
 lib/client/magazine.ts   magazine klein renderen, en een artikel eruit knippen
 lib/client/article.ts    een artikel-PDF inlezen en opslaan, en een run volgen, zonder

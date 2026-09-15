@@ -16,6 +16,13 @@ import type { StyleFragment } from './agents/styling';
  * that opens on a bold "Kerndoelen" and mentions the kerndoelen again three
  * paragraphs down is the case that taught us so. The words BEFORE the fragment
  * pick out which occurrence was meant, and the patch carries that as `nth`.
+ *
+ * Twee regels die daaruit volgen. De woorden ervoor kunnen over een alineagrens
+ * lopen ("het rapport." sluit de ene alinea, "Hoe laat je" opent de volgende), en
+ * run 1 zet elke alinea in een eigen blok; dan telt het laatste stuk van die
+ * woorden, dat wel in de alinea staat. En een plek die een eerder fragment al
+ * heeft, is geen kandidaat meer: dezelfde woorden die twee keer cursief staan zijn
+ * twee markeringen, niet één die twee keer op dezelfde plek wordt gezet.
  */
 
 export interface Placed {
@@ -28,23 +35,47 @@ const LETTER = /[\p{L}\p{N}]/u;
 const MARK = /\p{M}/gu;
 /** Below this a fragment is only placed where its context says it belongs. */
 const ANYWHERE_MIN = 4;
+/** Zo kort mag het laatste stuk van de woorden ervoor worden, en niet korter. */
+const ANCHOR_MIN = 4;
 
 export function placeFragments(blocks: Block[], fragments: StyleFragment[]): Placed {
   const patches: StylePatch[] = [];
   const unplaced: StyleFragment[] = [];
+  /** Waar al een fragment ligt: blok en plek in de letterstroom. */
+  const taken = new Set<string>();
 
-  for (const fragment of fragments) {
-    // A heading or a pull quote is set apart because of what it is, and the
-    // applier refuses inline styling on those blocks anyway.
-    if (fragment.kind !== 'text') continue;
+  // A heading or a pull quote is set apart because of what it is, and the
+  // applier refuses inline styling on those blocks anyway.
+  const texts = fragments.filter((fragment) => fragment.kind === 'text');
+  const hits = new Array<Hit | null>(texts.length).fill(null);
 
-    const hit = locate(blocks, fragment);
+  // Eerst wat zijn context terugvindt, daarna pas de rest. Anders pakt een fragment
+  // dat nergens past (het staat in de intro, niet in de lopende tekst) via "waar
+  // het ook staat" de plek van het fragment dat er met zoveel woorden bij hoort.
+  texts.forEach((fragment, i) => {
+    const hit = anchored(blocks, fragment, taken);
+    if (hit) {
+      hits[i] = hit;
+      taken.add(spot(hit.id, hit.at));
+    }
+  });
+  texts.forEach((fragment, i) => {
+    if (hits[i]) return;
+    const hit = fallback(blocks, fragment, taken);
+    if (hit) {
+      hits[i] = hit;
+      taken.add(spot(hit.id, hit.at));
+    }
+  });
+
+  texts.forEach((fragment, i) => {
+    const hit = hits[i];
     if (!hit) {
       unplaced.push(fragment);
-      continue;
+      return;
     }
     patches.push({ op: 'style', target: hit.id, find: hit.find, nth: hit.nth, style: [...fragment.style] });
-  }
+  });
 
   return { patches, unplaced };
 }
@@ -54,7 +85,11 @@ interface Hit {
   find: string;
   /** Which occurrence of `find`, counted over the block's styleable text. */
   nth: number;
+  /** Where the fragment starts in the block's stream of letters. */
+  at: number;
 }
+
+const spot = (id: string, at: number) => `${id}:${at}`;
 
 /**
  * Where this fragment sits in run 1's page, quoted in run 1's own spelling.
@@ -63,7 +98,7 @@ interface Hit {
  * mark, in printed order. A box's own title is not one of them: it is the first
  * thing a plain search hits and the last thing that can ever be painted.
  */
-function locate(blocks: Block[], fragment: StyleFragment): Hit | null {
+function anchored(blocks: Block[], fragment: StyleFragment, taken: Set<string>): Hit | null {
   const letters = flat(fragment.text);
   const before = flat(fragment.before);
   // One letter is not enough to find a place by, unless the words in front of it
@@ -79,12 +114,27 @@ function locate(blocks: Block[], fragment: StyleFragment): Hit | null {
   // mark to the same word halfway down the column before it, which is where the
   // reader will notice it and we will not.
   if (before) {
-    const anchored = search(blocks, letters, before);
+    const anchored = search(blocks, letters, before, false, 'exact', taken);
     if (anchored) return anchored;
+    // De woorden ervoor kunnen in de alinea ervoor beginnen. Het laatste stuk
+    // ervan staat dan wel in dezelfde alinea: probeer korter, woord voor woord.
+    for (const tail of tails(fragment.before)) {
+      const shorter = search(blocks, letters, tail, false, 'exact', taken);
+      if (shorter) return shorter;
+    }
   } else {
-    const opening = search(blocks, letters, '', true);
+    const opening = search(blocks, letters, '', true, 'exact', taken);
     if (opening) return opening;
   }
+  return null;
+}
+
+/** Wat overblijft als de context nergens past: een accent rechtgezet, of waar het staat. */
+function fallback(blocks: Block[], fragment: StyleFragment, taken: Set<string>): Hit | null {
+  const letters = flat(fragment.text);
+  const before = flat(fragment.before);
+  if (letters.length < 2 && before.length < 6) return null;
+  if (!letters.length) return null;
 
   // Folding the accents away is a repair for one thing only: the OCR and the file
   // disagreeing about a diacritic. The proof that this is that case is that the
@@ -96,7 +146,7 @@ function locate(blocks: Block[], fragment: StyleFragment): Hit | null {
   const speltThatWay = search(blocks, letters, '') !== null;
 
   if (!speltThatWay && (bare !== letters || bareBefore !== before)) {
-    const repaired = onlyOne(blocks, bare, bareBefore, !before) ?? onlyOne(blocks, bare, '', false);
+    const repaired = onlyOne(blocks, bare, bareBefore, !before, taken) ?? onlyOne(blocks, bare, '', false, taken);
     if (repaired) return repaired;
   }
 
@@ -109,7 +159,23 @@ function locate(blocks: Block[], fragment: StyleFragment): Hit | null {
   // Failing that, near enough: run 1 sometimes tidies what the page prints - it
   // wrote "The Pursuit of Happiness" where the film is spelt "Happyness" - and a
   // mark should not be lost over a letter.
-  return search(blocks, letters, '') ?? nearly(blocks, letters);
+  return search(blocks, letters, '', false, 'exact', taken) ?? nearly(blocks, letters, taken);
+}
+
+/**
+ * De woorden ervoor steeds korter, van voren af: "het rapport. Hoe laat je" wordt
+ * "rapport hoe laat je", "hoe laat je", "laat je". Nooit korter dan een paar
+ * letters, want "je" staat overal.
+ */
+function tails(before: string): string[] {
+  const words = before.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const out: string[] = [];
+  for (let i = 1; i < words.length; i++) {
+    const tail = flat(words.slice(i).join(' '));
+    if (tail.length < ANCHOR_MIN) break;
+    out.push(tail);
+  }
+  return out;
 }
 
 function search(
@@ -117,7 +183,8 @@ function search(
   letters: string,
   before: string,
   opensParagraph = false,
-  accents: 'exact' | 'folded' = 'exact'
+  accents: 'exact' | 'folded' = 'exact',
+  taken: Set<string> = new Set()
 ): Hit | null {
   if (!before && letters.length < 2) return null;
   const needle = before + letters;
@@ -129,11 +196,12 @@ function search(
     for (const found of hits(stream, needle, accents)) {
       // The match covers the leading context too; the fragment starts after it.
       const at = found + before.length;
+      if (taken.has(spot(block.id, at))) continue;
       // Not merely the first letter of a word - the first letter of the string.
       if (opensParagraph && (at > 0 ? stream.text[at] === stream.text[at - 1] : false)) continue;
       const find = quote(texts, stream, at, letters.length);
       if (!find?.trim()) continue;
-      return { id: block.id, find, nth: countBefore(texts, find, stream, at) };
+      return { id: block.id, find, nth: countBefore(texts, find, stream, at), at };
     }
   }
   return null;
@@ -149,7 +217,7 @@ const FUZZY_SHARE = 0.12;
  * character by character, and held to a handful of edits so "Happyness" can find
  * "Happiness" without "kerndoelen" finding "eindtermen".
  */
-function nearly(blocks: Block[], letters: string): Hit | null {
+function nearly(blocks: Block[], letters: string, taken: Set<string>): Hit | null {
   if (letters.length < FUZZY_MIN) return null;
   const budget = Math.max(1, Math.round(letters.length * FUZZY_SHARE));
   const anchor = letters.slice(0, 5);
@@ -166,6 +234,7 @@ function nearly(blocks: Block[], letters: string): Hit | null {
         const end = at + span;
         if (span < FUZZY_MIN || end > stream.letters.length) continue;
         if (stream.text[at] !== stream.text[end - 1]) continue;
+        if (taken.has(spot(block.id, at))) continue;
         // A near match is still a match on whole words. Without this "Rijker vak"
         // finds "rijker mak" inside "rijker maken", one edit away and half a word.
         if (!onWords(stream, at, end)) continue;
@@ -174,7 +243,7 @@ function nearly(blocks: Block[], letters: string): Hit | null {
         const find = quote(texts, stream, at, span);
         if (!find?.trim()) continue;
         fewest = edits;
-        best = { id: block.id, find, nth: countBefore(texts, find, stream, at) };
+        best = { id: block.id, find, nth: countBefore(texts, find, stream, at), at };
       }
     }
   }
@@ -211,7 +280,13 @@ function distance(a: string, b: string, cap: number): number {
  * where both are on the page, the accents were the only thing telling them apart
  * and guessing between them is worse than leaving the mark off.
  */
-function onlyOne(blocks: Block[], letters: string, before: string, opensParagraph: boolean): Hit | null {
+function onlyOne(
+  blocks: Block[],
+  letters: string,
+  before: string,
+  opensParagraph: boolean,
+  taken: Set<string>
+): Hit | null {
   if (!before && letters.length < 2) return null;
   const needle = before + letters;
   let only: Hit | null = null;
@@ -222,11 +297,12 @@ function onlyOne(blocks: Block[], letters: string, before: string, opensParagrap
 
     for (const found of hits(stream, needle, 'folded')) {
       const at = found + before.length;
+      if (taken.has(spot(block.id, at))) continue;
       if (opensParagraph && at > 0 && stream.text[at] === stream.text[at - 1]) continue;
       const find = quote(texts, stream, at, letters.length);
       if (!find?.trim()) continue;
       if (only) return null; // two candidates is no candidate
-      only = { id: block.id, find, nth: countBefore(texts, find, stream, at) };
+      only = { id: block.id, find, nth: countBefore(texts, find, stream, at), at };
     }
   }
   return only;
