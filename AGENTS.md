@@ -90,7 +90,7 @@ niets met de artikel-run behalve de chatclient.
 (kop links, intro rechts). `MapArticle.opening` zegt welke pagina's dat zijn en
 reist als `Job.opening` mee naar de artikel-run. De frontmatter-agent begint met
 zoveel pagina's, en zonder die kennis met twee (`OPENING_DEFAULT` in
-`lib/pipeline.ts`). Begin nooit weer met één pagina en stop bij de eerste kop: dan
+`lib/client/run.ts`). Begin nooit weer met één pagina en stop bij de eerste kop: dan
 mist hij een intro op de pagina ernaast en schrijft run 1 die in de body.
 
 Daarna knipt de browser per gekozen artikel de hele pagina's uit het magazine
@@ -99,18 +99,47 @@ en run. **Knip nooit binnen een pagina** (geen CropBox, geen regio's): een
 gedeelde pagina gaat heel mee.
 
 Omzetten gebeurt op de achtergrond in `components/MagazineView.tsx`: uitlezen
-(renderen, rippen, uploaden) één artikel tegelijk, want dat is zwaar in het
+(renderen, rippen, opslaan) één artikel tegelijk, want dat is zwaar in het
 tabblad; de runs lopen naast elkaar, `MAGAZINE_ARTICLE_CONCURRENCY` tegelijk.
 De interface springt niet naar een artikel; de gebruiker opent het zelf.
 
 `page`/`pdf` is overal de plek in het bestand. Het gedrukte nummer (`folio`)
-volgt uit de offset en is alleen weergave. Een magazine staat in
-`.data/jobs/<id>/` naast de jobs, herkenbaar aan `magazine.json`, met
-`scans.json` en `map.json`. Het rijgen is te controleren zonder tokens: roep
-`stitch` aan op een opgeslagen `scans.json`.
+volgt uit de offset en is alleen weergave. Een magazine staat in IndexedDB naast
+de jobs (store `magazines`), met `scans.json` en `map.json` in de store `data`.
+Het rijgen is te controleren zonder tokens: roep `stitch` aan op een opgeslagen
+`scans.json`.
 
 Een `Ledger` kan een eigen model en prijs dragen (`newLedger(provider, model)`);
 zonder dat geldt het model uit `.env.local`, zoals voorheen.
+
+## De server onthoudt niets
+
+De app draait op Vercel. Elk verzoek kan op een andere machine landen, er is geen
+blijvende schijf, een verzoek duurt hooguit 800 seconden en is hooguit 4,5 MB.
+Daaruit volgen vaste regels:
+
+1. **Geen opslag op de server.** Alles staat in de browser, in IndexedDB
+   (`lib/client/db.ts`): `jobs`, `magazines`, `files` (Blobs) en `data` (JSON),
+   bestanden onder `<eigenaar>/<naam>` met de namen die de job ze geeft. Schrijf
+   nooit weer naar `fs` vanuit een route.
+2. **De browser regelt, de server doet één stap.** `lib/client/run.ts` en
+   `lib/client/analyze.ts` bepalen volgorde en parallellisme en leveren dezelfde
+   `RunEvent`s en `MagazineEvent`s als de oude server-pipeline. Een route onder
+   `app/api/run/`, `app/api/magazine/` of `app/api/sanity/` krijgt alles wat hij
+   nodig heeft in het verzoek: JSON in `input`, beelden als `file:<naam>`.
+   Agents vragen beeld op via `ctx.image(naam)` (`lib/server/run.ts`).
+3. **Nooit een verzoek boven 4,4 MB.** Bouw verzoeken altijd met `runForm`
+   (`lib/client/post.ts`), die houdt het tegen. De PDF gaat per pagina naar de
+   OCR (valt terug op de render als een pagina-PDF te groot is); render en tiles
+   gaan in aparte verzoeken; Sanity-beeld één foto per verzoek.
+4. **Het tempo zit in de browser.** `lib/client/limiter.ts` houdt het maximum
+   tegelijk en Mistrals één start per seconde, gedeeld door alle runs in het
+   tabblad. `lib/llm/ratelimit.ts` op de server ziet maar één instantie.
+5. **Elke stap wordt bewaard voor hij telt.** Resultaten staan onder
+   `data/<id>/run/...`; `runArticle(id, provider, { resume: true })` slaat over
+   wat er al is. Een nieuwe run zonder `resume` begint schoon.
+6. **Een slot op de deur.** `middleware.ts` met `APP_PASSWORD`; zonder die
+   variabele staat alles open (lokaal).
 
 ## Harde invarianten
 
@@ -150,7 +179,16 @@ Breek deze niet. Ze staan er allemaal omdat het een keer misging.
 prompts.json          alle prompts, buiten de code. Data, geen code.
 lib/prompts.ts        laadt prompts.json, herlaadt bij wijziging,
                       houdt bij een JSON-fout de laatst werkende versie
-lib/pipeline.ts       de orkestratie: wat draait wanneer, wat parallel
+lib/client/run.ts     de orkestratie in de browser: wat draait wanneer, wat parallel
+lib/client/db.ts      IndexedDB: jobs, magazines, bestanden, tussenresultaten
+lib/client/post.ts    verzoeken bouwen (runForm, 4,4 MB-grens) en SSE lezen
+lib/client/limiter.ts het tempo: maximum tegelijk, Mistral 1 start per seconde
+lib/client/exports.ts pakket-ZIP in de browser, Sanity in stappen
+lib/server/run.ts     wat elke route deelt: verzoek lezen, kosten, streamen
+app/api/run/          check, ocr, frontmatter, images, page (run 1), styling (run 2)
+app/api/magazine/     scan (per pagina), boundary (per overgang)
+app/api/sanity/       asset (één beeld), push (pakket als concept)
+lib/auth.ts, middleware.ts  het wachtwoordslot
 lib/agents/           frontmaster, imagetriage, structure (run 1), styling (run 2)
 lib/pagemarkup.ts     parst de markers van run 1 naar blokken
 lib/patch.ts          legt de styling van run 2 over run 1 heen
@@ -158,7 +196,8 @@ lib/wordindex.ts      de woordindex en zijn controle
 lib/compile.ts        pagina's naar één artikel: naden, quotes, ruis
 lib/canonical.ts      het artikel als Vrhl Content Package 1.0. De enige plek
                       die dat formaat kent; weet niets van Sanity, MDX of Word
-lib/zip.ts            pakket.json plus het beeld als ZIP, zonder dependency
+lib/zip.ts            pakket.json plus het beeld als ZIP, zonder dependency en
+                      zonder compressie, zodat het in de browser draait
 lib/mdx.ts            schrijft MDX, en leest daarvoor het PAKKET, niet het
                       artikelobject: het pakket is de bron, MDX een consument
 lib/client/edit.ts    leest een correctie uit de Artikel-tab terug naar
@@ -175,17 +214,18 @@ lib/client/render.ts  rasteriseren in de browser
 lib/client/images.ts  de bitmaps uit de PDF rippen met pdf.js
 lib/agents/pagescan.ts   magazine: wat staat er op deze ene pagina
 lib/agents/boundary.ts   magazine: waar houdt het vorige artikel op
-lib/magazine/         analyze (orkestratie), stitch (regels), store, types
+lib/magazine/         stitch (regels), types
+lib/client/analyze.ts    magazine: de analyse geregisseerd vanuit de browser
 lib/client/magazine.ts   magazine klein renderen, en een artikel eruit knippen
-lib/client/article.ts    een artikel-PDF uploaden en een run volgen, zonder interface:
-                      de losse upload en de magazine-wachtrij gebruiken dezelfde code
+lib/client/article.ts    een artikel-PDF inlezen en opslaan, en een run volgen, zonder
+                      interface: de losse upload en de magazine-wachtrij delen de code
 lib/llm/chat.ts       één client voor OpenAI en Mistral: fetch, geen SDK, streaming
 lib/llm/ratelimit.ts  houdt zich aan de limieten die Mistral in elk antwoord meldt
-lib/llm/mistral.ts    OCR, alleen woorden
+lib/llm/mistral.ts    OCR, alleen woorden, één pagina per call
 app/                  UI en API-routes
-components/           Stream (live), ArticleView, Checks, Prompts
-.data/jobs/<id>/      per job: source.pdf, page images, geripte bitmaps,
-                      ocr.json, images.json, pages.json, article.json
+components/           Stream (live), ArticleView, Checks, Prompts, StoredImage
+.data/jobs/<id>/      alleen nog oude jobs van vóór de browseropslag; niets leest
+                      of schrijft hier meer
 ```
 
 ## Prompts wijzigen
@@ -237,8 +277,9 @@ Een volledige run kost geld: ongeveer 14 runs en 69k tokens voor een artikel van
 zes pagina's. Doe dat alleen als het nodig is.
 
 **Voor deterministische wijzigingen** (compile, patch, parse, cleanup): draai
-niet opnieuw. In `.data/jobs/<id>/pages.json` staat de opgeslagen output van run
-1 en 2. Zet tijdelijk een route neer die `compileArticle` op dat bestand
+niet opnieuw. De opgeslagen output van run 1 en 2 staat in IndexedDB onder
+`<job-id>/pages.json` (store `data`), en voor oude jobs nog in
+`.data/jobs/<id>/pages.json`. Zet tijdelijk een route neer die `compileArticle` op dat bestand
 loslaat, controleer, en haal de route weer weg. Zo zijn de naden en de
 quote-volgorde geverifieerd zonder één token.
 
@@ -267,7 +308,9 @@ gecompileerde artikel:
 - **Prettier herschrijft `app/page.tsx`** (quotes, JSX-indentatie). Exacte
   string-vervangingen kunnen daardoor missen. Lees het bestand voor je patcht.
 - **Stop de dev-server voor je `.next` weggooit.** Anders krijg je
-  `Cannot find module './873.js'`, een stale chunk-cache, geen codefout.
+  `Cannot find module './873.js'`, een stale chunk-cache, geen codefout. Wil je
+  bouwen terwijl er een dev-server draait: `NEXT_DIST_DIR=.next-test npm run
+  build`.
 - **Het model heet `gpt-5.6-terra`.** "medium" is de reasoning-effort, een aparte
   parameter, geen deel van de model-id. Een `model_not_found` wordt apart
   afgevangen en niet opnieuw geprobeerd.

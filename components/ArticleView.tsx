@@ -4,6 +4,7 @@ import { Fragment, type ReactNode } from 'react';
 import { cn } from 'cn';
 import { readerSans, readerSerif } from '@/app/reader-fonts';
 import '@/app/reader.css';
+import { StoredImage } from '@/components/StoredImage';
 import { looksSame, readBack, spansFrom } from '@/lib/client/edit';
 import { linkify } from '@/lib/links';
 import { segments, STYLE_ORDER } from '@/lib/spans';
@@ -37,7 +38,6 @@ export function ArticleView({
   onEdit?: (doc: ArticleDocument) => void;
 }) {
   const fm = doc.frontmatter;
-  const src = (file: string) => `/api/jobs/${jobId}/artifact/${file}`;
   const setFm = onEdit && ((next: Frontmatter) => onEdit({ ...doc, frontmatter: next }));
   const heading = (
     <>
@@ -55,8 +55,7 @@ export function ArticleView({
     <div className={cn('reader', readerSerif.variable, readerSans.variable)}>
       {doc.header ? (
         <div className="reader-hero">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={src(doc.header.file)} alt={doc.header.alt ?? ''} />
+          <StoredImage owner={jobId} name={doc.header.file} alt={doc.header.alt ?? ''} />
           <div className="reader-hero-wash" />
           <div className="reader-hero-text">{heading}</div>
         </div>
@@ -76,7 +75,7 @@ export function ArticleView({
           <Fragment key={i}>
             {renderNode(
               node,
-              src,
+              jobId,
               i,
               onEdit &&
                 ((next) =>
@@ -147,7 +146,7 @@ function Credits({ fm, onEdit }: { fm: Frontmatter; onEdit?: (fm: Frontmatter) =
 /** Een blok vervangen, of met null weghalen. */
 type Update = (node: ContentNode | null) => void;
 
-function renderNode(node: ContentNode, src: (file: string) => string, key: number, update?: Update): ReactNode {
+function renderNode(node: ContentNode, owner: string, key: number, update?: Update): ReactNode {
   switch (node.type) {
     case 'paragraph':
       return (
@@ -209,8 +208,7 @@ function renderNode(node: ContentNode, src: (file: string) => string, key: numbe
         <figure className={`figure-${node.size}`}>
           <div>
             {node.file ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={src(node.file)} alt={node.caption ?? ''} />
+              <StoredImage owner={owner} name={node.file} alt={node.caption ?? ''} />
             ) : (
               <div className="placeholder">{node.id}, geen bitmap uit de OCR</div>
             )}
@@ -263,7 +261,7 @@ function renderNode(node: ContentNode, src: (file: string) => string, key: numbe
             <Fragment key={`${key}-${i}`}>
               {renderNode(
                 child,
-                src,
+                owner,
                 i,
                 update &&
                   ((next) =>

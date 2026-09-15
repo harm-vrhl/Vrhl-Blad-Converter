@@ -324,6 +324,21 @@ export interface ArticleContext {
   about: string;
 }
 
+/**
+ * Wat één verzoek aan de server kostte. De server telt niet meer over een hele
+ * run heen, want die bestaat voor hem niet: de browser telt de stappen op.
+ */
+export interface RunUsage {
+  calls: number;
+  tokens: number;
+  ocrPages: number;
+  ai: number;
+  ocr: number;
+  currency: string;
+  /** Wat Mistral deze sleutel per minuut toestaat, zodra het dat heeft gezegd. */
+  mistralLimit: number | null;
+}
+
 export type RunEvent =
   | { type: 'status'; run: string; state: 'start' | 'ok' | 'fail'; page?: number; detail?: string }
   | { type: 'delta'; page: number; text: string }

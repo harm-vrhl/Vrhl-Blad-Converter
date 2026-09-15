@@ -26,12 +26,16 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { streamRun, uploadArticle } from "@/lib/client/article";
+import { analyzeMagazine } from "@/lib/client/analyze";
+import { fileUrl, needFile, newId, putFile, saveMagazine } from "@/lib/client/db";
 import { cutArticle, scanMagazine } from "@/lib/client/magazine";
+import { pad2 } from "@/lib/util";
 import type { RenderStep } from "@/lib/client/render";
-import type { Job } from "@/lib/types";
+import type { StoredJob } from "@/lib/client/db";
 import type {
   Magazine,
   MagazineEvent,
+  MagazinePage,
   MagazineMap,
   MapArticle,
   PageScan,
@@ -59,12 +63,15 @@ interface ArticleProgress {
 
 const RUNNING: ArticleProgress["state"][] = ["wacht", "uitlezen", "omzetten"];
 
-const STEP_LABEL: Record<RenderStep | "uploaden", string> = {
+const STEP_LABEL: Record<RenderStep | "opslaan", string> = {
   renderen: "renderen",
   beelden: "beeld",
   lettertypen: "letters",
-  uploaden: "uploaden",
+  opslaan: "opslaan",
 };
+
+/** A dense page's text layer runs to some thousands of characters; more is not text. */
+const TEXT_LIMIT = 40_000;
 
 interface StatusLine {
   run: string;
@@ -96,7 +103,10 @@ const KIND_LABEL: Record<string, string> = {
  * Omzetten is de gewone artikel-run, maar op de achtergrond en een paar tegelijk:
  * je blijft op het overzicht en ziet per artikel hoe ver het is, en opent het pas
  * als je wilt. Het uitlezen van de PDF gebeurt in dit tabblad en is zwaar, dus dat
- * gaat één voor één; de runs zelf lopen op de server naast elkaar.
+ * gaat één voor één; de verzoeken aan de server lopen naast elkaar.
+ *
+ * Alles staat in de opslag van deze browser: het magazine, zijn pagina's en de
+ * PDF zelf, zodat artikelen er ook na een herlaadbeurt nog uit te knippen zijn.
  */
 export function MagazineView({
   provider,
@@ -155,35 +165,35 @@ export function MagazineView({
       await scanMagazine(next, async (page, total) => {
         setRendered({ page: page.pdf, total });
         if (!current) {
-          const form = new FormData();
-          form.set("file", next);
-          form.set("pageCount", String(total));
-          const res = await fetch("/api/magazines", { method: "POST", body: form });
-          const body = (await res.json()) as { magazine: Magazine; missingKeys: string[]; error?: string };
-          if (!res.ok) throw new Error(body.error ?? "upload mislukt");
-          current = body.magazine;
-          setMagazine(body.magazine);
+          current = {
+            id: newId(),
+            kind: "magazine",
+            filename: next.name,
+            pageCount: total,
+            pages: [],
+            createdAt: new Date().toISOString(),
+            status: "uploading",
+            error: null,
+            map: null,
+          };
+          await putFile(current.id, "source.pdf", next);
+          await saveMagazine(current);
         }
-        const form = new FormData();
-        form.set("page", String(page.pdf));
-        form.set("width", String(page.width));
-        form.set("height", String(page.height));
-        form.set("image", page.image, `page-${page.pdf}.jpeg`);
-        form.set("thumb", page.thumb, `thumb-${page.pdf}.jpeg`);
-        form.set("text", page.text);
-        form.set("label", page.label ?? "");
-        const res = await fetch(`/api/magazines/${current.id}/pages`, {
-          method: "POST",
-          body: form,
-          signal: AbortSignal.timeout(120_000),
-        });
-        if (!res.ok) throw new Error(`pagina ${page.pdf} kon niet worden opgeslagen`);
+        const stored: MagazinePage = {
+          pdf: page.pdf,
+          width: page.width,
+          height: page.height,
+          image: await putFile(current.id, `page-${pad2(page.pdf)}.jpeg`, page.image),
+          thumb: await putFile(current.id, `thumb-${pad2(page.pdf)}.jpeg`, page.thumb),
+          text: page.text.slice(0, TEXT_LIMIT),
+          label: page.label?.trim().slice(0, 40) || null,
+        };
+        current.pages = [...current.pages.filter((p) => p.pdf !== page.pdf), stored].sort((a, b) => a.pdf - b.pdf);
+        current.status = current.pages.length >= current.pageCount ? "ready" : "uploading";
+        await saveMagazine(current);
+        setMagazine({ ...current });
         setThumbs((prev) => [...prev, page.previewUrl]);
       });
-      if (current) {
-        const res = await fetch(`/api/magazines/${(current as Magazine).id}`);
-        if (res.ok) setMagazine((await res.json()) as Magazine);
-      }
       setRendered(null);
       setPhase("ready");
     } catch (err) {
@@ -205,26 +215,7 @@ export function MagazineView({
 
     let failed = false;
     try {
-      const res = await fetch(`/api/magazines/${magazine.id}/analyze`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ provider }),
-      });
-      if (!res.body) throw new Error("geen stream ontvangen");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split("\n\n");
-        buffer = chunks.pop() ?? "";
-        for (const chunk of chunks) {
-          const line = chunk.replace(/^data: ?/, "").trim();
-          if (line) handle(JSON.parse(line) as MagazineEvent);
-        }
-      }
+      for await (const event of analyzeMagazine(magazine.id, provider)) handle(event);
       if (!failed) setPhase((p) => (p === "analyzing" ? "done" : p));
     } catch (err) {
       setNotice(err instanceof Error ? err.message : String(err));
@@ -278,7 +269,7 @@ export function MagazineView({
             const before = reading;
             let release = () => {};
             reading = new Promise<void>((done) => (release = done));
-            let job: Job;
+            let job: StoredJob;
             try {
               await before;
               update(id, { state: "uitlezen", detail: "PDF openen" });
@@ -325,14 +316,11 @@ export function MagazineView({
     setCutting(true);
     setNotice(null);
     try {
-      // The browser still has the file after an upload; after a reload it has to
-      // come from the server again.
+      // The browser still has the file after an upload; after a reload it comes
+      // out of this browser's storage.
       const source = file
         ? await file.arrayBuffer()
-        : await fetch(`/api/jobs/${magazine.id}/artifact/source.pdf`).then((r) => {
-            if (!r.ok) throw new Error("het magazine-PDF is niet meer te vinden");
-            return r.arrayBuffer();
-          });
+        : await needFile(magazine.id, "source.pdf").then((blob) => blob.arrayBuffer());
       const base = magazine.filename.replace(/\.pdf$/i, "");
       const items: ConvertItem[] = [];
       for (const article of chosen) {
@@ -351,13 +339,27 @@ export function MagazineView({
     }
   }, [map, magazine, selected, file, runArticles]);
 
+  // The thumbnails out of storage, for a magazine that was opened again rather
+  // than rendered in this session.
+  const [stored, setStored] = useState<Record<number, string>>({});
+  useEffect(() => {
+    // While the pages are still being rendered, the render's own previews show.
+    if (!magazine || phase === "scanning") return;
+    let live = true;
+    void Promise.all(
+      magazine.pages.map(async (p) => [p.pdf, await fileUrl(magazine.id, p.thumb)] as const),
+    ).then((pairs) => {
+      if (live) setStored(Object.fromEntries(pairs.filter((pair): pair is readonly [number, string] => !!pair[1])));
+    });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [magazine?.id, phase]);
+
   const thumbOf = useCallback(
-    (pdf: number) => {
-      const page = magazine?.pages.find((p) => p.pdf === pdf);
-      if (magazine && page) return `/api/jobs/${magazine.id}/artifact/${page.thumb}`;
-      return thumbs[pdf - 1];
-    },
-    [magazine, thumbs],
+    (pdf: number) => thumbs[pdf - 1] ?? stored[pdf],
+    [thumbs, stored],
   );
 
   const busy = phase === "scanning" || phase === "analyzing";

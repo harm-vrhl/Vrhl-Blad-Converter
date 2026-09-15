@@ -147,9 +147,6 @@ export const env = {
   get articleConcurrency() {
     return num('MAGAZINE_ARTICLE_CONCURRENCY', 3);
   },
-  get dataDir() {
-    return str('DATA_DIR', '.data');
-  },
 
   // ─── Sanity ────────────────────────────────────────────────────────────────
   // De namen komen uit canonical/sanity/opslagvorm.json, zodat deze kant dezelfde

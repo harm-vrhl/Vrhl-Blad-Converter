@@ -1,4 +1,4 @@
-import { mutate, query, uploadImage, type Mutation } from './client';
+import { mutate, query, type Mutation } from './client';
 import {
   creditDocument,
   creditKey,
@@ -9,13 +9,18 @@ import {
   type Resolved,
   type SanityDoc
 } from './documents';
-import { packageFiles, type Pakket } from '../canonical';
+import type { Pakket } from '../canonical';
 import type { ExtractedImage } from '../types';
 
 /**
  * De importstappen in volgorde, zoals `stappen` in canonical/sanity/mapping.json:
  * eerst de assets, dan de credits en tags opzoeken of aanmaken, dan het artikel,
  * en pas schrijven als alles klaar staat.
+ *
+ * Het uploaden van de assets zelf gebeurt ervoor, één beeld per verzoek
+ * (`/api/sanity/asset`): een artikel met zes foto's is samen al snel meer dan de
+ * 4,5 MB die één verzoek aan de server mag zijn. Hier komen alleen de id's aan
+ * die Sanity daarbij teruggaf.
  */
 
 const ROLES: Record<string, string> = {
@@ -33,28 +38,27 @@ export interface PushResult {
 }
 
 export interface PushOptions {
-  /** De bitmaps van de job, om de bestanden bij een asset te vinden. */
+  /** De bitmaps van de job: breedte en hoogte voor een droogloop. */
   images: ExtractedImage[];
-  /** Levert de inhoud van een bestand uit de job. */
-  readFile: (name: string) => Promise<Uint8Array>;
+  /** Per asset-id van het pakket het `_id` dat Sanity bij het uploaden gaf. */
+  assetIds: Record<string, string>;
   /** Niets versturen: alleen uitrekenen wat er geschreven zou worden. */
   dryRun?: boolean;
 }
 
 export async function pushPackage(pakket: Pakket, options: PushOptions): Promise<PushResult> {
-  const { images, readFile, dryRun = false } = options;
+  const { images, assetIds, dryRun = false } = options;
   const warnings: string[] = [];
   const refs: Resolved = { assets: new Map(), credits: new Map(), tags: new Map() };
   const extra: SanityDoc[] = [];
   const created: string[] = [];
 
-  // 1. Assets. Sanity dedupliceert zelf op inhoud, dus hetzelfde beeld twee keer
-  //    sturen levert hetzelfde asset-id op.
+  // 1. Assets, al geupload. Sanity dedupliceert zelf op inhoud, dus hetzelfde
+  //    beeld twee keer sturen levert hetzelfde asset-id op.
   let uploaded = 0;
   const byId = new Map(images.map((image) => [image.id, image]));
-  for (const file of packageFiles(pakket, images)) {
-    const asset = (pakket.assets ?? []).find((a) => a.bestand === file.path);
-    if (!asset) continue;
+  for (const asset of pakket.assets ?? []) {
+    if (!asset.bestand) continue;
 
     if (dryRun) {
       const image = byId.get(asset.id);
@@ -66,14 +70,12 @@ export async function pushPackage(pakket: Pakket, options: PushOptions): Promise
       continue;
     }
 
-    try {
-      const data = await readFile(file.source);
-      const naam = file.path.replace(/^assets\//, '');
-      const result = await uploadImage(data, naam, asset.mimeType ?? 'image/jpeg');
-      refs.assets.set(asset.id, result._id);
+    const id = assetIds[asset.id];
+    if (id) {
+      refs.assets.set(asset.id, id);
       uploaded++;
-    } catch (err) {
-      warnings.push(`asset '${asset.id}' kon niet worden geupload: ${message(err)}`);
+    } else {
+      warnings.push(`asset '${asset.id}' is niet geupload`);
     }
   }
 

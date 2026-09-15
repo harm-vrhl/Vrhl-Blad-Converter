@@ -69,7 +69,7 @@ export async function detectStyling(
     effort: prompt.effort,
     maxOutputTokens: prompt.maxOutputTokens,
     input: `Page ${page}.${cut}`,
-    images: await Promise.all(images.map((file) => pageImageUrl(ctx.jobId, file))),
+    images: await Promise.all(images.map((file) => pageImageUrl(ctx, file))),
     schemaName: 'style_fragments',
     schema
   });

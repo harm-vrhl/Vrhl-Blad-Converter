@@ -1,0 +1,32 @@
+import { AUTH_COOKIE, AUTH_DAYS, authEnabled, checkPassword, issueToken } from '@/lib/auth';
+
+/** Het wachtwoord erin, een ondertekende cookie eruit. */
+export async function POST(request: Request) {
+  if (!authEnabled()) return Response.json({ ok: true });
+
+  const body = (await request.json().catch(() => ({}))) as { password?: unknown };
+  const password = typeof body.password === 'string' ? body.password : '';
+  if (!(await checkPassword(password))) {
+    // Een beetje wachten maakt raden traag, zonder dat iemand die zich vertypt
+    // het merkt.
+    await new Promise((done) => setTimeout(done, 600));
+    return Response.json({ error: 'Dat wachtwoord klopt niet.' }, { status: 401 });
+  }
+
+  const secure = new URL(request.url).protocol === 'https:';
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: {
+      'content-type': 'application/json',
+      'set-cookie': [
+        `${AUTH_COOKIE}=${await issueToken()}`,
+        'Path=/',
+        'HttpOnly',
+        'SameSite=Lax',
+        `Max-Age=${AUTH_DAYS * 24 * 60 * 60}`,
+        secure ? 'Secure' : ''
+      ]
+        .filter(Boolean)
+        .join('; ')
+    }
+  });
+}

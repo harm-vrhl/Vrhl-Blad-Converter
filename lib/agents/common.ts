@@ -1,16 +1,19 @@
-import { readArtifactAsDataUrl } from '../store';
 import type { Ledger, JsonSchema } from '../llm/chat';
 import type { Block, PageBlock } from '../types';
 
 export interface AgentCtx {
-  jobId: string;
+  /**
+   * Een beeld bij naam, als data-URL. De server bewaart niets meer: wat een run
+   * wil zien, zit in het verzoek dat hem startte.
+   */
+  image: (name: string) => Promise<string>;
   ledger: Ledger;
   /** What the runs before this one already established about the article. */
   context: string;
 }
 
-export async function pageImageUrl(jobId: string, file: string): Promise<string> {
-  return readArtifactAsDataUrl(jobId, file, file.endsWith('.png') ? 'image/png' : 'image/jpeg');
+export function pageImageUrl(ctx: AgentCtx, file: string): Promise<string> {
+  return ctx.image(file);
 }
 
 /** Strict-mode object schema: every key required, nothing extra. */

@@ -100,7 +100,7 @@ export async function scanPage(ctx: AgentCtx, input: PageScanInput): Promise<Pag
       '',
       input.nextText.trim() ? `Start of the next page's text:\n${clip(input.nextText, NEIGHBOUR)}` : 'There is no next page, or it has no text.'
     ].join('\n'),
-    images: await Promise.all(images.map((image) => pageImageUrl(ctx.jobId, image))),
+    images: await Promise.all(images.map((image) => pageImageUrl(ctx, image))),
     schemaName: 'paginascan',
     schema
   });

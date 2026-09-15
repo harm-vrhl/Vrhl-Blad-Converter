@@ -54,7 +54,7 @@ export async function triageImages(
 
   const results = await pMap(calls, env.concurrency, async ({ page, batch }) => {
     const size = page ? pageSize(page, batch) : null;
-    const pictures = await Promise.all(batch.map((img) => pageImageUrl(ctx.jobId, img.thumb)));
+    const pictures = await Promise.all(batch.map((img) => pageImageUrl(ctx, img.thumb)));
     const result = await askJson<{ verdicts: Array<{ id: string; keep: boolean; kind: ImageKind; reason: string }> }>({
       agent: `image-triage p${batch[0].page}`,
       ledger: ctx.ledger,
@@ -78,7 +78,7 @@ export async function triageImages(
         '',
         'Find each one on the page and judge it where it stands. Judge every one of them.'
       ].join('\n'),
-      images: page ? [await pageImageUrl(ctx.jobId, page.image), ...pictures] : pictures,
+      images: page ? [await pageImageUrl(ctx, page.image), ...pictures] : pictures,
       schemaName: 'image_verdicts',
       schema
     });

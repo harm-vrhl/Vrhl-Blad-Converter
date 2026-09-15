@@ -68,7 +68,7 @@ export async function readFrontmatter(
         ? `\n\nThe words the PDF's text layer holds on this spread. Anything you read that is not here was drawn rather than typed:\n\n${[...new Set(words)].join(' ')}`
         : `\n\nThis spread has no text layer, so the OCR and the image are all there is. Read every field off the image and check it word by word.`
     ].join(''),
-    images: await Promise.all(images.map((image) => pageImageUrl(ctx.jobId, image))),
+    images: await Promise.all(images.map((image) => pageImageUrl(ctx, image))),
     schemaName: 'frontmatter',
     schema,
     onDelta: onPartial

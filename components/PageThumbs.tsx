@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, XIcon } from 'lucide-react';
+import { useStoredUrl } from '@/components/StoredImage';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -54,14 +55,12 @@ export function PageThumbs({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, thumbs.length]);
 
+  // The page at the size the runs look at, once it is out of storage; the
+  // thumbnail stands in until then.
+  const large = useStoredUrl(jobId, open != null ? pages.find((page) => page.page === open + 1)?.image : null);
+
   const total = Math.max(pageCount, thumbs.length);
   if (!total) return null;
-
-  const src = (index: number) => {
-    const asset = pages.find((page) => page.page === index + 1);
-    if (jobId && asset?.image) return `/api/jobs/${jobId}/artifact/${asset.image}`;
-    return thumbs[index];
-  };
 
   return (
     <>
@@ -123,7 +122,7 @@ export function PageThumbs({
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={src(open)}
+                  src={large ?? thumbs[open]}
                   alt={`Pagina ${open + 1}`}
                   className="max-h-[calc(100svh-7rem)] w-auto max-w-[min(90vw,72rem)] cursor-default rounded-lg bg-white object-contain"
                   onClick={(event) => event.stopPropagation()}

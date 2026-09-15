@@ -1,5 +1,3 @@
-import { deflateRawSync } from 'node:zlib';
-
 /**
  * Een ZIP schrijven, zonder dependency.
  *
@@ -7,10 +5,15 @@ import { deflateRawSync } from 'node:zlib';
  * controleert met `--bestanden` of het beeld naast het JSON staat, en dat kan
  * alleen als ze samen aankomen. Een archiver erbij halen voor dit ene doel is
  * meer dan het waard is; dit is het formaat zoals het in de spec staat, met
- * alleen de twee methodes die we nodig hebben.
+ * alleen de methode die we nodig hebben.
  *
- * Bewust weggelaten: zip64, encryptie en mappen als eigen entry. Een pakket uit
- * een artikel blijft ruim onder de 4 GB en mappen ontstaan vanzelf uit de paden.
+ * Alles wordt opgeslagen zonder compressie. Het pakket wordt in de browser
+ * ingepakt, waar geen zlib is, en het levert ook niets op: het beeld is al JPEG
+ * of PNG en `pakket.json` is een paar tientallen kilobytes.
+ *
+ * Bewust weggelaten: compressie, zip64, encryptie en mappen als eigen entry. Een
+ * pakket uit een artikel blijft ruim onder de 4 GB en mappen ontstaan vanzelf uit
+ * de paden.
  */
 
 export interface ZipEntry {
@@ -35,13 +38,6 @@ function crc32(data: Uint8Array): number {
   return ~c >>> 0;
 }
 
-/** Een JPEG comprimeert niet; het opnieuw proberen kost tijd en levert niets. */
-function packed(path: string, data: Uint8Array): { method: number; body: Uint8Array } {
-  if (/\.(jpe?g|png|gif|webp|zip)$/i.test(path)) return { method: 0, body: data };
-  const deflated = new Uint8Array(deflateRawSync(data));
-  return deflated.length < data.length ? { method: 8, body: deflated } : { method: 0, body: data };
-}
-
 export function zip(entries: ZipEntry[], now = new Date()): Uint8Array {
   const time = ((now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1)) & 0xffff;
   const date = (((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate()) & 0xffff;
@@ -52,7 +48,8 @@ export function zip(entries: ZipEntry[], now = new Date()): Uint8Array {
 
   for (const entry of entries) {
     const name = new TextEncoder().encode(entry.path);
-    const { method, body } = packed(entry.path, entry.data);
+    const method = 0; // opgeslagen, niet gecomprimeerd
+    const body = entry.data;
     const sum = crc32(entry.data);
 
     const local = new Uint8Array(30 + name.length);

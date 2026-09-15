@@ -12,7 +12,7 @@ het blad staan.
 **Stap 2.** *Convert*.
 
 ```
-     Mistral OCR (1 call)              pdf.js ript de bitmaps
+     Mistral OCR (per pagina)          pdf.js ript de bitmaps
   woordindex per pagina                uit de PDF, op 300 dpi
                     \                 /
                      +---------------+
@@ -176,6 +176,52 @@ npm run dev
 
 http://localhost:3210 · PDF erin · *Convert*.
 
+## Opslag, en hosten op Vercel
+
+De app draait op Vercel. Daar bewaart de server niets: elk verzoek kan op een
+andere machine landen en een schijf blijft niet bestaan. Daarom:
+
+- **De browser bewaart alles**, in IndexedDB (`lib/client/db.ts`): de job, de
+  renders en foto's, de tussenresultaten van elke stap, het artikel en de
+  correcties. Op het startscherm staat wat er eerder is omgezet, met hoeveel
+  ruimte het inneemt. Het staat op die ene computer in die ene browser; het
+  archief is Sanity.
+- **De browser regelt de run** (`lib/client/run.ts`, magazine:
+  `lib/client/analyze.ts`). De server krijgt per stap één kort verzoek met alleen
+  wat die stap nodig heeft (`app/api/run/*`, `app/api/magazine/*`,
+  `app/api/sanity/*`) en roept OpenAI, Mistral of Sanity aan met de sleutels die
+  op de server blijven.
+- **Elke stap wordt meteen bewaard.** Stopt een run halverwege (tabblad dicht,
+  netwerk weg), dan gaat *Verder waar het stopte* verder zonder de OCR en de
+  klaargezette pagina's opnieuw te betalen.
+
+Twee grenzen van Vercel bepalen hoe dat is opgeknipt:
+
+1. **Een verzoek mag niet eindeloos duren.** Standaard 5 minuten, op Pro
+   maximaal 800 seconden. Een heel magazine in één verzoek past daar nooit in;
+   één pagina per verzoek duurt 10 seconden tot 2 minuten.
+2. **Een verzoek mag hooguit 4,5 MB zijn**, heen en terug. Een magazine-PDF is
+   50 MB, dus gaat de PDF per pagina naar de OCR, en gaan de render en de tiles
+   van een pagina in aparte verzoeken. `runForm` in `lib/client/post.ts` houdt
+   alles boven 4,4 MB al in de browser tegen, met een melding die zegt wat te
+   groot was.
+
+**Toegang.** Elke API-route gebruikt de sleutels van de redactie, dus op Vercel
+hoort er een slot op. Zet `APP_PASSWORD` en `AUTH_SECRET` (bv. `openssl rand -hex
+32`) in de omgevingsvariabelen van het project; `middleware.ts` stuurt iedereen
+zonder geldige cookie naar `/login`. Zonder `APP_PASSWORD` staat alles open, wat
+lokaal handig is.
+
+Op Vercel verder: alle sleutels uit `.env.example` als omgevingsvariabelen. Fluid
+compute staat standaard aan. `prompts.json` gaat via
+`outputFileTracingIncludes` in `next.config.mjs` mee in de functies.
+
+Een tweede build naast een lopende dev-server, zonder elkaars `.next` te raken:
+
+```bash
+NEXT_DIST_DIR=.next-test npm run build
+```
+
 ### Instellingen
 
 Alles in `.env.local`. Mistral leest altijd de pagina's (`mistral-ocr-latest`).
@@ -231,7 +277,7 @@ magazine.pdf
   per artikel knipt de browser de hele pagina's eruit (pdf-lib)
   en die PDF gaat door precies dezelfde artikel-run als hierboven,
   op de achtergrond: uitlezen één voor één in de browser, de runs
-  tegelijk op de server (MAGAZINE_ARTICLE_CONCURRENCY, standaard 3)
+  naast elkaar (MAGAZINE_ARTICLE_CONCURRENCY, standaard 3)
 ```
 
 Het magazinemodel staat in `.env.local`: `OPENAI_MAGAZINE_MODEL`
@@ -265,7 +311,9 @@ runs (`frontmatter`, `imagetriage`, `structure`, `styling`) plus de gedeelde
 Bewerk het bestand en draai opnieuw. Een herstart is niet nodig; het wordt
 opnieuw ingelezen zodra het is gewijzigd. Maak je een JSON-fout, dan blijft de
 laatst werkende versie in gebruik en staat de fout in de serverlog; je run valt
-er dus niet door om.
+er dus niet door om. Dat herladen werkt alleen lokaal: op Vercel staat
+`prompts.json` vast in de deploy, dus daar gaat een wijziging mee met de volgende
+deploy.
 
 `effort` is de reasoning-inspanning van die ene run (`minimal` · `low` ·
 `medium` · `high`); `null` betekent: neem `OPENAI_REASONING_EFFORT` of
@@ -289,11 +337,14 @@ lib/pagemarkup.ts   parst de markers van run 1 naar blokken
 lib/patch.ts        legt de styling van run 2 over run 1 heen
 lib/wordindex.ts    de woordindex en zijn controle
 lib/compile.ts      pagina's naar één artikel
-lib/pipeline.ts     de orkestratie, en wat waar parallel loopt
+lib/client/run.ts   de regie van een run, in de browser: wat wanneer, wat parallel
+lib/client/db.ts    de opslag in de browser (IndexedDB): jobs, beeld, tussenstappen
+lib/client/post.ts  praten met de server, en de 4,5 MB-grens bewaken
+lib/server/run.ts   wat elke run-route deelt: verzoek lezen, kosten, streamen
+app/api/run/        één korte stap per verzoek: ocr, frontmatter, images, page, styling
 lib/llm/            Mistral OCR, en één chatclient voor OpenAI en Mistral
                     (fetch, geen SDK, streaming, houdt zich aan Mistrals limieten)
-.data/jobs/         per job: page images, geripte bitmaps, ocr.json,
-                    images.json, pages.json, article.json
+middleware.ts       het wachtwoordslot (APP_PASSWORD)
 ```
 
 ## Output
@@ -351,7 +402,9 @@ SANITY_API_TOKEN=
 ```
 
 Het token heeft schrijfrechten nodig en blijft op de server; de interface hoort
-alleen of er een token is. Zonder deze drie werkt de converter gewoon door en
+alleen of er een token is. De browser stuurt het beeld één foto per verzoek
+(`/api/sanity/asset`) en daarna het pakket met de id's die Sanity teruggaf
+(`/api/sanity/push`), zodat geen verzoek boven de 4,5 MB komt. Zonder deze drie werkt de converter gewoon door en
 blijft alleen de knop uit.
 
 Wat de import doet, in de volgorde die `canonical/sanity/mapping.json`
@@ -367,8 +420,11 @@ Er is een droogloop die niets verstuurt en geen token nodig heeft. Die rekent
 alleen uit wat er geschreven zou worden, zodat je het kunt nakijken met de
 validator van de opslagvorm zelf:
 
+Download eerst de JSON van het artikel (knop *JSON*, dat is `pakket.json`), en dan:
+
 ```bash
-curl -s -X POST "http://localhost:3210/api/jobs/<job-id>/sanity?dryRun=1&bare=1" > documenten.json
+curl -s -X POST http://localhost:3210/api/sanity/push \
+  --form-string "input={\"dryRun\":true,\"bare\":true,\"pakket\":$(cat pakket.json)}" > documenten.json
 node canonical/sanity/validate.mjs documenten.json
 ```
 

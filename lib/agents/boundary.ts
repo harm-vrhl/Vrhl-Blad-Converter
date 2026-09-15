@@ -73,7 +73,7 @@ export async function checkBoundary(
       input.samePage ? '' : `Text of ${input.lastPageName}, the end of it:\n${tail(input.lastText, TEXT)}\n`,
       `Text of ${input.startPageName}:\n${clip(input.startText, TEXT)}`
     ].join('\n'),
-    images: await Promise.all(images.map((image) => pageImageUrl(ctx.jobId, image))),
+    images: await Promise.all(images.map((image) => pageImageUrl(ctx, image))),
     schemaName: 'grenscontrole',
     schema
   });

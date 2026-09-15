@@ -53,7 +53,7 @@ ${
 
 OCR of this page (the words that exist):
 ${ocr}`,
-    images: [await pageImageUrl(ctx.jobId, image)]
+    images: [await pageImageUrl(ctx, image)]
   });
 
   return { ...parsePage(page, raw, available), raw };

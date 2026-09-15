@@ -40,15 +40,18 @@ Je sleept een PDF in de dropzone. De browser doet per pagina:
    welke tekst vet of cursief is (`styling`), en elk woord zoals het in het bestand
    staat (`words`).
 
-Alles gaat per pagina naar de server en wordt een **job** in `.data/jobs/<id>/`.
+Alles wordt per pagina **in de browser bewaard** (IndexedDB, `lib/client/db.ts`)
+als een **job**. Er gaat nog niets naar de server.
 
-### Stap 2. Convert: de pipeline (`runPipeline` in `lib/pipeline.ts`)
+### Stap 2. Convert: de run (`runArticle` in `lib/client/run.ts`)
 
-Je kiest de provider (OpenAI of Mistral) en klikt op *Convert*. De server stuurt
-elke stap live terug (streaming).
+Je kiest de provider (OpenAI of Mistral) en klikt op *Convert*. De browser regelt
+de run: elke stap is een eigen kort verzoek aan de server, met alleen wat die stap
+nodig heeft. Wat terugkomt, verschijnt meteen op het scherm en wordt bewaard.
 
 **2a. Woordindex** (`woordindex`)
-- Mistral OCR leest de hele PDF in één call (`ocrPdf`).
+- Mistral OCR leest de PDF **per pagina** (`/api/run/ocr`, `ocrPage`): de browser
+  knipt elke pagina los met pdf-lib.
 - Waar OCR en PDF alleen een accent anders hebben, wint de PDF (`reconcile`).
 - Per pagina wordt een **woordindex** gebouwd (`buildIndex`): de lijst woorden die
   op die pagina mogen voorkomen.
@@ -121,9 +124,9 @@ daarna **omzetten** (per gekozen artikel precies deel 1).
 
 Elke pagina wordt een kleinere afbeelding (1400 px) plus de tekstlaag. Geen
 beeld rippen, geen typografie: dat is voor de analyse niet nodig. Het magazine
-wordt opgeslagen als `magazine.json`.
+en de PDF worden in de browser bewaard.
 
-### Stap 2. Analyseren (`analyzeMagazine` in `lib/magazine/analyze.ts`)
+### Stap 2. Analyseren (`analyzeMagazine` in `lib/client/analyze.ts`)
 
 Deze run gebruikt een **goedkoop model** (`magazineModelFor`, standaard
 `gpt-5.6-luna`). Geen OCR.
@@ -172,7 +175,7 @@ opmerkingen.
 3. Elk artikel gaat door **deel 1**, op de achtergrond:
    - **uitlezen** (`uploadArticle`) één artikel tegelijk, want dat is zwaar voor
      de browser;
-   - **runs** (`streamRun`) tegelijk op de server, standaard 3
+   - **runs** (`streamRun`) naast elkaar, standaard 3
      (`MAGAZINE_ARTICLE_CONCURRENCY`).
 4. Het artikel neemt twee dingen mee uit de kaart:
    - **opening** (`Job.opening`): hoeveel pagina's de frontmatter-agent eerst
@@ -183,6 +186,23 @@ opmerkingen.
    *Openen* bekijk je een artikel dat klaar is.
 
 ---
+
+## Opslag en hosting
+
+De app draait op **Vercel**. Daar onthoudt de server niets tussen twee
+verzoeken, een verzoek duurt hooguit 800 seconden en is hooguit 4,5 MB. Daarom:
+
+- **Alles staat in de browser** (IndexedDB): pagina's, foto's, tussenresultaten,
+  het artikel en je correcties. Op het startscherm zie je wat er eerder is
+  omgezet en hoeveel ruimte het inneemt. Het staat op die computer, in die
+  browser; het archief is Sanity.
+- **Elke stap is een kort verzoek**, per pagina of per overgang. De browser
+  houdt het tempo bij (maximaal `MAX_CONCURRENCY` tegelijk, Mistral één start per
+  seconde) en houdt verzoeken boven 4,4 MB tegen.
+- **Afgebroken? Verder waar het stopte.** Wat klaar was, wordt niet opnieuw
+  betaald.
+- **Een wachtwoord** (`APP_PASSWORD`) schermt de app af, want elke stap gebruikt
+  de sleutels van de redactie.
 
 ## Modellen en kosten
 
@@ -201,9 +221,12 @@ zonder herstart.
 
 | Onderdeel | Bestand |
 |---|---|
-| Artikel-pipeline | `lib/pipeline.ts` |
+| Regie van een run (browser) | `lib/client/run.ts`, `lib/client/analyze.ts` |
+| Opslag (browser) | `lib/client/db.ts` |
+| Korte stappen (server) | `app/api/run/`, `app/api/magazine/`, `app/api/sanity/` |
 | Agents (LLM-runs) | `lib/agents/` |
-| Magazine-analyse | `lib/magazine/` |
+| Magazine-regels | `lib/magazine/stitch.ts` |
+| Wachtwoordslot | `middleware.ts`, `lib/auth.ts` |
 | Uitlezen in de browser | `lib/client/` |
 | Mozaïeken | `lib/mosaic.ts` |
 | Compileren | `lib/compile.ts` |

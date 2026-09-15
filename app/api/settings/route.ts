@@ -14,6 +14,10 @@ export async function GET() {
     currency: env.priceCurrency,
     provider: env.provider,
     articleConcurrency: env.articleConcurrency,
+    // De browser regelt het tempo van een run, want alleen die ziet alle
+    // verzoeken; de server is op Vercel elke keer een andere machine.
+    concurrency: env.concurrency,
+    mistralReqPerMinute: env.mistralReqPerMinute,
     providers: [
       { id: 'openai', label: 'OpenAI', model: modelFor('openai').model, ready: Boolean(env.openaiKey), limit: null },
       {

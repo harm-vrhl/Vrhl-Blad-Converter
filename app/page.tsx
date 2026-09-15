@@ -27,6 +27,19 @@ import { Button } from "@/components/ui/button";
 // juist nodig als die knoppen uit staan, en een tooltip krijgt op een disabled
 // element geen pointer-events. Het native title-attribuut wel.
 import { streamRun, uploadArticle } from "@/lib/client/article";
+import {
+  deleteOwner,
+  estimate,
+  fileUrl,
+  getData,
+  listJobs,
+  loadJob,
+  saveJob,
+  sizeOf,
+  type StoredJob,
+  type Totals,
+} from "@/lib/client/db";
+import { packageZip, pushToSanity } from "@/lib/client/exports";
 import type { RenderStep } from "@/lib/client/render";
 import { blankFrontmatter, compileArticle } from "@/lib/compile";
 import { toPackage } from "@/lib/canonical";
@@ -38,7 +51,6 @@ import type { StyleFragment } from "@/lib/agents/styling";
 import type {
   ArticleDocument,
   Frontmatter,
-  Job,
   ImageVerdict,
   PageResult,
   Patch,
@@ -58,15 +70,6 @@ const BUSY: Record<string, string> = {
   pagina: "bezig…",
 };
 
-/** What the whole run came to: the receipt under the steps that spent it. */
-interface Totals {
-  runs: number;
-  tokens: number;
-  ms: number;
-  ocrPages: number;
-  cost: { ai: number; ocr: number; total: number; currency: string } | null;
-}
-
 interface StatusLine {
   run: string;
   page?: number;
@@ -76,7 +79,10 @@ interface StatusLine {
 
 export default function Home() {
   const [phase, setPhase] = useState<Phase>("idle");
-  const [job, setJob] = useState<Job | null>(null);
+  const [job, setJob] = useState<StoredJob | null>(null);
+  /** Wat er in deze browser eerder is omgezet, voor de lijst op het startscherm. */
+  const [earlier, setEarlier] = useState<Array<StoredJob & { bytes: number }> | null>(null);
+  const [storage, setStorage] = useState<{ usage: number; quota: number } | null>(null);
   const [thumbs, setThumbs] = useState<string[]>([]);
   const [status, setStatus] = useState<StatusLine[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
@@ -101,16 +107,16 @@ export default function Home() {
   const [provider, setProvider] = useState<Provider>("openai");
   const [doc, setDoc] = useState<ArticleDocument | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  /** Het inpakken van het canonieke pakket loopt over de server en duurt even. */
+  /** Het inpakken van het canonieke pakket leest al het beeld uit de opslag. */
   const [packing, setPacking] = useState(false);
-  /** Idem voor het duwen naar Sanity, dat bovendien beeld uploadt. */
-  const [pushing, setPushing] = useState(false);
+  /** Het duwen naar Sanity, dat eerst het beeld één voor één uploadt. */
+  const [pushing, setPushing] = useState<{ done: number; total: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [tab, setTab] = useState<Tab>("paginas");
   const [renderStep, setRenderStep] = useState<{
     page: number;
     total: number;
-    step: RenderStep | "uploaden";
+    step: RenderStep | "opslaan";
   } | null>(null);
   /**
    * Eén artikel-PDF, zoals altijd, of een volledig magazine waarin eerst gezocht
@@ -129,7 +135,7 @@ export default function Home() {
   /** Het afgeronde artikel met de correcties erin: wat de exports krijgen. */
   const current = edited ?? doc;
 
-  const accept = useCallback(async (file: File, opening?: number): Promise<Job | null> => {
+  const accept = useCallback(async (file: File, opening?: number): Promise<StoredJob | null> => {
     if (!file.name.toLowerCase().endsWith(".pdf")) {
       setNotice("Alleen PDF-bestanden.");
       return null;
@@ -154,15 +160,11 @@ export default function Home() {
     try {
       const landed = await uploadArticle(file, {
         opening,
-        onJob: (created, missingKeys) => {
-          setJob(created);
-          if (missingKeys.length)
-            setNotice(`Ontbrekende sleutels in .env.local: ${missingKeys.join(", ")}`);
-        },
+        onJob: (created) => setJob({ ...created }),
         onPage: (rendered) => setThumbs((prev) => [...prev, rendered.previewUrl]),
         onStep: (page, total, step) => setRenderStep({ page, total, step }),
       });
-      setJob(landed);
+      setJob({ ...landed });
       setRenderStep(null);
       setPhase("ready");
       return landed;
@@ -200,8 +202,8 @@ export default function Home() {
   }, []);
 
   /** Resolves true when the run reached its end with an article. */
-  const convert = useCallback(async (target?: Job): Promise<boolean> => {
-    const run = target ?? job;
+  const convert = useCallback(async (resume = false): Promise<boolean> => {
+    const run = job;
     if (!run) return false;
     let finished = false;
     setPhase("running");
@@ -217,7 +219,10 @@ export default function Home() {
     setTab("artikel");
 
     try {
-      finished = await streamRun(run.id, provider, handle);
+      finished = await streamRun(run.id, provider, handle, { resume });
+      // De run schreef de job bij in de opslag; het scherm neemt die stand over.
+      const stored = await loadJob(run.id);
+      if (stored) setJob(stored);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : String(err));
       setPhase("error");
@@ -296,39 +301,26 @@ export default function Home() {
     return finished;
   }, [job, provider]);
 
-  /** Een eerder omgezet artikel terug in beeld, uit wat de run heeft opgeslagen. */
+  /** Een eerder omgezet artikel terug in beeld, uit de opslag van deze browser. */
   const openJob = useCallback(async (jobId: string) => {
     try {
-      const res = await fetch(`/api/jobs/${jobId}`);
-      if (!res.ok) throw new Error("dit artikel is niet meer te vinden");
-      const loaded = (await res.json()) as Job;
-      const saved = await fetch(`/api/jobs/${jobId}/artifact/pages.json`)
-        .then((r) => (r.ok ? (r.json() as Promise<PageResult[]>) : []))
-        .catch(() => [] as PageResult[]);
-      const triage = await fetch(`/api/jobs/${jobId}/artifact/images.json`)
-        .then((r) =>
-          r.ok
-            ? (r.json() as Promise<{ verdicts?: ImageVerdict[]; rejected?: Record<string, string> }>)
-            : null,
-        )
-        .catch(() => null);
-      const verdictList = triage?.verdicts ?? [];
-      for (const [id, reason] of Object.entries(triage?.rejected ?? {})) {
-        if (!verdictList.some((v) => v.id === id)) verdictList.push({ id, keep: false, kind: "ornament", reason });
-      }
+      const loaded = await loadJob(jobId);
+      if (!loaded) throw new Error("dit artikel staat niet (meer) in de opslag van deze browser");
+      const saved = (await getData<PageResult[]>(jobId, "pages.json")) ?? [];
+      const pageThumbs = await Promise.all(loaded.pages.map((p) => fileUrl(jobId, p.thumb)));
 
       setStatus([]);
-      setTotals(null);
-      setEdited(null);
+      setTotals(loaded.totals);
+      setEdited(loaded.edited);
       setText({});
       setPatches({});
       setFragments({});
       setNotice(null);
       setRenderStep(null);
       setJob(loaded);
-      setThumbs(loaded.pages.map((p) => `/api/jobs/${jobId}/artifact/${p.thumb}`));
+      setThumbs(pageThumbs.filter((url): url is string => !!url));
       setResults(Object.fromEntries(saved.map((p) => [p.page, p])));
-      setVerdicts(verdictList);
+      setVerdicts(loaded.verdicts ?? []);
       setFrontmatter(loaded.document?.frontmatter ?? null);
       setDoc(loaded.document);
       setPhase(loaded.document ? "done" : "ready");
@@ -338,6 +330,64 @@ export default function Home() {
       setNotice(err instanceof Error ? err.message : String(err));
     }
   }, []);
+
+  /** Terug naar het startscherm, met de lijst van wat er eerder is omgezet. */
+  const closeJob = useCallback(() => {
+    setJob(null);
+    setDoc(null);
+    setEdited(null);
+    setThumbs([]);
+    setStatus([]);
+    setTotals(null);
+    setResults({});
+    setText({});
+    setPatches({});
+    setFragments({});
+    setFrontmatter(null);
+    setVerdicts([]);
+    setNotice(null);
+    setPhase("idle");
+    setTab("paginas");
+  }, []);
+
+  /** De lijst op het startscherm, en hoeveel ruimte alles samen inneemt. */
+  const refreshEarlier = useCallback(async () => {
+    try {
+      const jobs = await listJobs();
+      setEarlier(await Promise.all(jobs.map(async (j) => ({ ...j, bytes: await sizeOf(j.id) }))));
+      setStorage(await estimate());
+    } catch {
+      setEarlier([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!job) void refreshEarlier();
+  }, [job, refreshEarlier]);
+
+  // Correcties blijven bewaard: even na de laatste wijziging gaan ze de opslag in.
+  useEffect(() => {
+    if (!job || phase !== "done") return;
+    const timer = window.setTimeout(() => {
+      void loadJob(job.id).then((stored) => {
+        if (!stored || stored.edited === edited) return;
+        stored.edited = edited;
+        return saveJob(stored);
+      });
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [edited, job, phase]);
+
+  // Een run leeft in dit tabblad. Wie het sluit, stopt hem; dat mag niet per ongeluk.
+  useEffect(() => {
+    if (phase !== "running" && phase !== "rendering" && !converting) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [phase, converting]);
 
   const modeSwitch = (
     <SegmentedControl
@@ -362,29 +412,20 @@ export default function Home() {
   /**
    * Het artikel als Vrhl Content Package: pakket.json plus het beeld, in een ZIP.
    *
-   * Wat in de Artikel-tab is rechtgezet gaat mee. De server kent alleen wat de
-   * run heeft opgeslagen, dus het artikel zoals het nu op het scherm staat reist
-   * mee in de body; anders levert de knop iets anders af dan je ziet.
+   * Wat in de Artikel-tab is rechtgezet gaat mee: het artikel zoals het nu op
+   * het scherm staat, niet zoals de run het achterliet. Het inpakken gebeurt in
+   * de browser, want daar staat het beeld.
    */
   const downloadPackage = useCallback(async () => {
     if (!job || !current) return;
     setPacking(true);
     setNotice(null);
     try {
-      const res = await fetch(`/api/jobs/${job.id}/package`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ document: current }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const blob = await res.blob();
-      const named = /filename="([^"]+)"/.exec(
-        res.headers.get("content-disposition") ?? "",
-      );
+      const { blob, name } = await packageZip(job, current);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = named?.[1] ?? "pakket.zip";
+      a.download = name;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -400,37 +441,25 @@ export default function Home() {
    * Het artikel naar Sanity, als concept.
    *
    * Wat hier weggaat is het pakket, niet het artikelobject: de importer leest
-   * hetzelfde formaat dat ook naar MDX of Word gaat, met de correcties erin. Het schrijven zelf gebeurt
-   * op de server, want het token hoort de browser nooit te zien.
+   * hetzelfde formaat dat ook naar MDX of Word gaat, met de correcties erin. De
+   * browser stuurt het beeld één voor één; het schrijven zelf gebeurt op de
+   * server, want het token hoort de browser nooit te zien.
    */
   const pushSanity = useCallback(async () => {
     if (!job || !current) return;
-    setPushing(true);
+    setPushing({ done: 0, total: 0 });
     setNotice(null);
     try {
-      const res = await fetch(`/api/jobs/${job.id}/sanity`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ document: current }),
-      });
-      const body = (await res.json()) as {
-        documents?: unknown[];
-        created?: string[];
-        uploaded?: number;
-        warnings?: string[];
-        error?: string;
-        detail?: string;
-      };
-      if (!res.ok) throw new Error(body.detail ? `${body.error} (${body.detail})` : (body.error ?? `fout ${res.status}`));
+      const body = await pushToSanity(job, current, (done, total) => setPushing({ done, total }));
 
       const deel = [
-        `${body.documents?.length ?? 0} document(en) als concept weggeschreven`,
+        `${body.documents.length} document(en) als concept weggeschreven`,
         body.uploaded ? `${body.uploaded} afbeelding(en) geupload` : null,
-        body.created?.length ? `nieuw aangemaakt: ${body.created.join(", ")}` : null,
+        body.created.length ? `nieuw aangemaakt: ${body.created.join(", ")}` : null,
       ].filter(Boolean);
       setNotice(
         `Naar Sanity: ${deel.join(" · ")}.${
-          body.warnings?.length ? ` Let op: ${body.warnings.join(" · ")}` : ""
+          body.warnings.length ? ` Let op: ${body.warnings.join(" · ")}` : ""
         }`,
       );
     } catch (err) {
@@ -438,7 +467,7 @@ export default function Home() {
         `Het duwen naar Sanity is niet gelukt: ${err instanceof Error ? err.message : String(err)}`,
       );
     } finally {
-      setPushing(false);
+      setPushing(null);
     }
   }, [job, current]);
 
@@ -474,10 +503,10 @@ export default function Home() {
   // pipeline finishes with. That is the point: the live preview cannot drift
   // from the result. The frontmatter appears the moment it is read, and a page
   // that is still being written is parsed here from run 1's own output, with
-  // the same parser the server uses - so the column fills block by block, and
+  // the same parser the run uses - so the column fills block by block, and
   // the page's real result takes over the moment its two runs are done.
   //
-  // The typography is laid on here too, with the same placer the server uses.
+  // The typography is laid on here too, with the same placer the run uses.
   // Run 2 no longer waits for run 1, so its marks are usually in before the text
   // has finished arriving; placing them here is what lets the reader watch a
   // paragraph appear already set rather than watch it change afterwards.
@@ -566,7 +595,7 @@ export default function Home() {
       const page = Number(key);
       if (results[page] || !raw.trim()) continue;
       const { blocks, continuity } = parsePage(page, raw, approved);
-      // The server's placed patches once it has sent them, and until then run 2's
+      // The run's placed patches once it has sent them, and until then run 2's
       // own fragments, placed against the text that has arrived so far.
       const marks = patches[page]?.length
         ? patches[page]
@@ -612,6 +641,12 @@ export default function Home() {
                 Magazine
               </Button>
             ) : null}
+            {job && !showMagazine && mode === "artikel" ? (
+              <Button variant="ghost" size="sm" disabled={uploadDisabled} onClick={closeJob}>
+                <ArrowLeft />
+                Overzicht
+              </Button>
+            ) : null}
             {job && !showMagazine ? (
               <>
                 <span className="hidden max-w-xs truncate text-xs text-muted-foreground sm:inline">
@@ -652,6 +687,16 @@ export default function Home() {
                   }
                 }}
               />
+            ) : null}
+            {job && !showMagazine && phase !== "running" && (job.status === "running" || job.status === "error") && job.pages.length >= job.pageCount ? (
+              <Button
+                variant="outline"
+                disabled={converting}
+                title="Wat al klaar was, wordt niet opnieuw betaald"
+                onClick={() => void convert(true)}
+              >
+                Verder waar het stopte
+              </Button>
             ) : null}
             {job && !showMagazine ? (
               <Button
@@ -702,7 +747,10 @@ export default function Home() {
       ) : null}
 
       {showMagazine ? null : idle || (phase === "rendering" && !job) ? (
-        <div className="mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col items-center justify-center px-6 py-16">
+        // Scrollt zelf: met de lijst eronder past het startscherm niet altijd, en de
+        // pagina als geheel scrollt niet.
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="mx-auto flex min-h-full w-full max-w-xl flex-col items-center justify-center px-6 py-16">
           <h2 className="text-center text-3xl font-semibold tracking-tight">
             Wat zullen we omzetten?
           </h2>
@@ -780,6 +828,18 @@ export default function Home() {
               </span>
             )}
           </label>
+          {earlier?.length && phase !== "rendering" ? (
+            <Earlier
+              jobs={earlier}
+              storage={storage}
+              onOpen={(id) => void openJob(id)}
+              onDelete={async (id) => {
+                await deleteOwner(id);
+                await refreshEarlier();
+              }}
+            />
+          ) : null}
+        </div>
         </div>
       ) : (
         <div className="flex min-h-0 flex-1">
@@ -856,7 +916,7 @@ export default function Home() {
                   <ToolbarRule />
                   <ToolbarButton
                     type="button"
-                    disabled={pushing || !settings?.sanity?.ready}
+                    disabled={!!pushing || !settings?.sanity?.ready}
                     title={
                       settings?.sanity?.ready
                         ? `Als concept naar ${settings.sanity.projectId} · ${settings.sanity.dataset}`
@@ -869,7 +929,11 @@ export default function Home() {
                     ) : (
                       <UploadCloud className="size-3.5" />
                     )}
-                    {pushing ? "Versturen…" : "Sanity"}
+                    {pushing
+                      ? pushing.total && pushing.done < pushing.total
+                        ? `Beeld ${pushing.done + 1}/${pushing.total}`
+                        : "Versturen…"
+                      : "Sanity"}
                   </ToolbarButton>
                 </QuietToolbar>
               ) : null}
@@ -1006,3 +1070,87 @@ function download(filename: string, content: string) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Wat er in deze browser eerder is omgezet. Het staat alleen hier, op deze
+ * computer: het archief is Sanity. Daarom ook hoeveel ruimte het inneemt, en een
+ * knop om op te ruimen.
+ */
+function Earlier({
+  jobs,
+  storage,
+  onOpen,
+  onDelete,
+}: {
+  jobs: Array<StoredJob & { bytes: number }>;
+  storage: { usage: number; quota: number } | null;
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  const [removing, setRemoving] = useState<string | null>(null);
+  return (
+    <section className="mt-10 w-full" aria-label="Eerder omgezet">
+      <header className="mb-2 flex items-baseline justify-between gap-4">
+        <h3 className="text-sm font-medium">Eerder omgezet</h3>
+        {storage ? (
+          <span className="text-xs text-muted-foreground">
+            {megabytes(storage.usage)} in deze browser
+          </span>
+        ) : null}
+      </header>
+      <ul className="divide-y rounded-xl border bg-card">
+        {jobs.map((j) => (
+          <li key={j.id} className="flex items-center gap-3 px-3 py-2">
+            <button
+              type="button"
+              className="min-w-0 flex-1 text-left"
+              onClick={() => onOpen(j.id)}
+            >
+              <span className="block truncate text-sm">
+                {j.document?.frontmatter.title ?? j.filename}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {[
+                  new Date(j.createdAt).toLocaleDateString("nl-NL", { day: "numeric", month: "short" }),
+                  `${j.pageCount} pagina's`,
+                  STATE_LABEL[j.status] ?? j.status,
+                  j.edited ? "gecorrigeerd" : null,
+                  megabytes(j.bytes),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              disabled={removing === j.id}
+              onClick={async () => {
+                if (!window.confirm(`"${j.filename}" en alles wat erbij hoort uit deze browser verwijderen?`)) return;
+                setRemoving(j.id);
+                await onDelete(j.id);
+                setRemoving(null);
+              }}
+            >
+              Verwijderen
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+const STATE_LABEL: Record<string, string> = {
+  uploading: "niet volledig ingelezen",
+  ready: "nog niet omgezet",
+  running: "gestopt tijdens de run",
+  done: "klaar",
+  error: "mislukt",
+};
+
+function megabytes(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0).replace(".", ",")} MB`;
+}
+

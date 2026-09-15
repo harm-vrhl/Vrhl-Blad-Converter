@@ -33,6 +33,7 @@ import {
   QueueSectionLabel,
   QueueSectionTrigger,
 } from "@/components/ai-elements/queue";
+import { useStoredUrl } from "@/components/StoredImage";
 import type {
   ExtractedImage,
   Frontmatter,
@@ -568,17 +569,17 @@ function ImageFindings({
       {shown.length && jobId ? (
         <div className="flex flex-wrap gap-1.5">
           {shown.map((image) => (
-            <QueueItemImage
-              key={image.id}
-              src={`/api/jobs/${jobId}/artifact/${image.thumb}`}
-              alt=""
-              className="h-8 w-8 rounded"
-            />
+            <StoredThumb key={image.id} owner={jobId} name={image.thumb} />
           ))}
         </div>
       ) : null}
     </div>
   );
+}
+
+function StoredThumb({ owner, name }: { owner: string; name: string }) {
+  const url = useStoredUrl(owner, name);
+  return url ? <QueueItemImage src={url} alt="" className="h-8 w-8 rounded" /> : null;
 }
 
 function CompileFindings({ detail }: { detail: string }) {

@@ -45,28 +45,26 @@ interface MistralOcrPage {
 }
 
 /**
- * The words that exist. One call for the whole PDF, results per page. Everything
- * downstream may reorder and classify these words; nothing may add to them, and
- * the word index built from this text is what proves it.
- * Images are not asked for here: they are ripped out of the PDF itself, at the
- * resolution the designer placed them.
+ * Eén pagina, als een PDF van die ene pagina of als een render ervan.
  *
- * The blocks are kept as well as the markdown. They carry a bounding box, a kind,
- * and content with the emphasis markers still on - the page's own typography,
- * read off the paper at its own resolution rather than off a downscaled image.
+ * Een heel magazine is 50 MB en een verzoek aan de server mag er 4,5 zijn, dus
+ * gaat de PDF pagina voor pagina. Mistral rekent per pagina, dus dat kost niets
+ * extra. Een render is de terugval voor een pagina die ook los te groot is, want
+ * er staat een foto van 6 MB op.
  */
-export async function ocrPdf(jobId: string, pdf: Buffer, ledger?: OcrLedger): Promise<OcrPage[]> {
-  const pages = await ask({ type: 'document_url', document_url: `data:application/pdf;base64,${pdf.toString('base64')}` }, pdf.length, ledger);
-  if (!pages.length) throw new Error('Mistral OCR gaf geen paginas terug');
-
-  return pages
-    .map((p) => ({
-      page: p.index + 1,
-      markdown: (p.markdown ?? '').trim(),
-      blocks: (p.blocks ?? []).map(readBlock),
-      dimensions: p.dimensions ?? null
-    }))
-    .sort((a, b) => a.page - b.page);
+export async function ocrPage(page: number, data: Buffer, mime: string, ledger?: OcrLedger): Promise<OcrPage> {
+  const document: Record<string, string> =
+    mime === 'application/pdf'
+      ? { type: 'document_url', document_url: `data:application/pdf;base64,${data.toString('base64')}` }
+      : { type: 'image_url', image_url: `data:${mime || 'image/jpeg'};base64,${data.toString('base64')}` };
+  const [read] = await ask(document, data.length, ledger);
+  if (!read) throw new Error(`Mistral OCR gaf niets terug voor pagina ${page}`);
+  return {
+    page,
+    markdown: (read.markdown ?? '').trim(),
+    blocks: (read.blocks ?? []).map(readBlock),
+    dimensions: read.dimensions ?? null
+  };
 }
 
 /**
