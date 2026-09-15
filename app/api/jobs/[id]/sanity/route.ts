@@ -44,7 +44,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   // Net als bij de pakket-route: wat op het scherm staat wint van wat er is
-  // opgeslagen, zodat een bewerkte MDX ook echt meegaat naar het CMS.
+  // opgeslagen, zodat een correctie uit de Artikel-tab ook echt meegaat naar het CMS.
   let given: ArticleDocument | null = null;
   try {
     const body = (await request.json()) as { document?: ArticleDocument };

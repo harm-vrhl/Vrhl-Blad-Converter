@@ -4,8 +4,9 @@ import { Fragment, type ReactNode } from 'react';
 import { cn } from 'cn';
 import { readerSans, readerSerif } from '@/app/reader-fonts';
 import '@/app/reader.css';
+import { looksSame, readBack, spansFrom } from '@/lib/client/edit';
 import { linkify } from '@/lib/links';
-import { segments } from '@/lib/spans';
+import { segments, STYLE_ORDER } from '@/lib/spans';
 import type {
   ArticleDocument,
   ContentNode,
@@ -17,18 +18,36 @@ import type {
 
 /**
  * The article as the reader will print it, in Vrhl-Blad's own type and colour
- * (Vrhl-Blad-Artikel-Styling.html). What it shows is what the MDX carries and
- * nothing more: a mark the format has no room for is not painted here either,
- * so the preview cannot promise something the export will drop.
+ * (Vrhl-Blad-Artikel-Styling.html). What it shows is what the canonical package
+ * carries and nothing more: a mark the format has no room for is not painted
+ * here either, so the preview cannot promise something the export will drop.
+ *
+ * Met `onEdit` is het ook de bewerkplek. Elke tekst is dan aan te klikken en wat
+ * iemand verandert komt als nieuw artikelobject terug; een blok leegmaken haalt
+ * het weg. De vorm van het artikel verandert niet: geen blokken erbij, geen
+ * beeld verplaatsen. Daarvoor is de PDF er.
  */
-export function ArticleView({ doc, jobId }: { doc: ArticleDocument; jobId: string }) {
+export function ArticleView({
+  doc,
+  jobId,
+  onEdit
+}: {
+  doc: ArticleDocument;
+  jobId: string;
+  onEdit?: (doc: ArticleDocument) => void;
+}) {
   const fm = doc.frontmatter;
   const src = (file: string) => `/api/jobs/${jobId}/artifact/${file}`;
+  const setFm = onEdit && ((next: Frontmatter) => onEdit({ ...doc, frontmatter: next }));
   const heading = (
     <>
-      {fm.chapeau ? <p className="reader-kicker">{field(fm, 'chapeau')}</p> : null}
-      <h1 className="reader-title">{fm.title ? field(fm, 'title') : 'Zonder titel'}</h1>
-      {fm.subtitle ? <p className="reader-subtitle">{field(fm, 'subtitle')}</p> : null}
+      {fm.chapeau ? <Field fm={fm} name="chapeau" as="p" className="reader-kicker" onEdit={setFm} /> : null}
+      {fm.title || setFm ? (
+        <Field fm={fm} name="title" as="h1" className="reader-title" onEdit={setFm} />
+      ) : (
+        <h1 className="reader-title">Zonder titel</h1>
+      )}
+      {fm.subtitle ? <Field fm={fm} name="subtitle" as="p" className="reader-subtitle" onEdit={setFm} /> : null}
     </>
   );
 
@@ -45,57 +64,144 @@ export function ArticleView({ doc, jobId }: { doc: ArticleDocument; jobId: strin
         <div className="reader-head">{heading}</div>
       )}
 
-      <Credits fm={fm} />
+      <Credits fm={fm} onEdit={setFm} />
 
       <div className="article-content article-body">
         {fm.intro ? (
           <div className="article-intro">
-            <p>{field(fm, 'intro')}</p>
+            <Field fm={fm} name="intro" as="p" onEdit={setFm} />
           </div>
         ) : null}
         {doc.content.map((node, i) => (
-          <Fragment key={i}>{renderNode(node, src, i)}</Fragment>
+          <Fragment key={i}>
+            {renderNode(
+              node,
+              src,
+              i,
+              onEdit &&
+                ((next) =>
+                  onEdit({
+                    ...doc,
+                    content: next
+                      ? doc.content.map((old, j) => (j === i ? next : old))
+                      : doc.content.filter((_, j) => j !== i)
+                  }))
+            )}
+          </Fragment>
         ))}
       </div>
     </div>
   );
 }
 
+const CREDIT_FIELDS = {
+  tekst: 'authors',
+  foto: 'photographers',
+  illustratie: 'illustrators'
+} as const;
+
 /** Tekst, foto en illustratie, elk in hun eigen pill, zoals de lezerssite. */
-function Credits({ fm }: { fm: Frontmatter }) {
-  const roles: Array<[keyof typeof ICONS, string[]]> = [
-    ['tekst', fm.authors],
-    ['foto', fm.photographers],
-    ['illustratie', fm.illustrators]
-  ];
-  const filled = roles.filter(([, names]) => names.length);
-  if (!filled.length && !fm.date) return null;
+function Credits({ fm, onEdit }: { fm: Frontmatter; onEdit?: (fm: Frontmatter) => void }) {
+  const roles = (Object.keys(CREDIT_FIELDS) as Array<keyof typeof CREDIT_FIELDS>).filter(
+    (role) => fm[CREDIT_FIELDS[role]].length
+  );
+  if (!roles.length && !fm.date) return null;
 
   return (
     <div className="reader-credits">
-      {filled.map(([role, names]) => (
+      {roles.map((role) => (
         <span className="pill" key={role}>
           {ICONS[role]}
-          <span>{names.join(', ')}</span>
+          <Editable
+            as="span"
+            text={fm[CREDIT_FIELDS[role]].join(', ')}
+            marks={[]}
+            onCommit={
+              onEdit &&
+              ((names) =>
+                onEdit({
+                  ...fm,
+                  [CREDIT_FIELDS[role]]: names
+                    .split(',')
+                    .map((name) => name.trim())
+                    .filter(Boolean)
+                }))
+            }
+          />
         </span>
       ))}
-      {fm.date ? <span className="pill">{fm.date}</span> : null}
+      {fm.date ? (
+        <span className="pill">
+          <Editable
+            as="span"
+            text={fm.date}
+            marks={[]}
+            onCommit={onEdit && ((date) => onEdit({ ...fm, date: date || null }))}
+          />
+        </span>
+      ) : null}
     </div>
   );
 }
 
-function renderNode(node: ContentNode, src: (file: string) => string, key: number): ReactNode {
+/** Een blok vervangen, of met null weghalen. */
+type Update = (node: ContentNode | null) => void;
+
+function renderNode(node: ContentNode, src: (file: string) => string, key: number, update?: Update): ReactNode {
   switch (node.type) {
     case 'paragraph':
-      return <p>{styled(node.content, node.styles)}</p>;
+      return (
+        <Editable
+          as="p"
+          text={node.content}
+          spans={node.styles}
+          marks={STYLE_ORDER}
+          onCommit={update && ((content, styles) => update(content ? { ...node, content, styles } : null))}
+        />
+      );
     case 'subheading':
-      return <h3>{node.content}</h3>;
+      return (
+        <Editable
+          as="h3"
+          text={node.content}
+          marks={[]}
+          onCommit={update && ((content) => update(content ? { ...node, content } : null))}
+        />
+      );
     // A streamer is a quote in the reader; both are one blockquote.
     case 'quote':
     case 'streamer':
-      return <blockquote>{`“${node.content.replace(/^[\s"'“”„«»]+|[\s"'“”„«»]+$/g, '')}”`}</blockquote>;
+      return (
+        <blockquote>
+          {'“'}
+          <Editable
+            as="span"
+            text={node.content.replace(/^[\s"'“”„«»]+|[\s"'“”„«»]+$/g, '')}
+            marks={[]}
+            onCommit={update && ((content) => update(content ? { ...node, content } : null))}
+          />
+          {'”'}
+        </blockquote>
+      );
     case 'list': {
-      const items = node.items.map((item, i) => <li key={i}>{styled(item.content, item.styles)}</li>);
+      const items = node.items.map((item, i) => (
+        <Editable
+          key={i}
+          as="li"
+          text={item.content}
+          spans={item.styles}
+          marks={STYLE_ORDER}
+          onCommit={
+            update &&
+            ((content, styles) => {
+              const next = content
+                ? node.items.map((old, j) => (j === i ? { content, styles } : old))
+                : node.items.filter((_, j) => j !== i);
+              update(next.length ? { ...node, items: next } : null);
+            })
+          }
+        />
+      ));
       return node.ordered ? <ol>{items}</ol> : <ul>{items}</ul>;
     }
     case 'image':
@@ -109,7 +215,25 @@ function renderNode(node: ContentNode, src: (file: string) => string, key: numbe
               <div className="placeholder">{node.id}, geen bitmap uit de OCR</div>
             )}
             {node.caption || node.credit ? (
-              <figcaption>{[node.caption, node.credit].filter(Boolean).join(' · ')}</figcaption>
+              <figcaption>
+                {node.caption ? (
+                  <Editable
+                    as="span"
+                    text={node.caption}
+                    marks={[]}
+                    onCommit={update && ((caption) => update({ ...node, caption: caption || null }))}
+                  />
+                ) : null}
+                {node.caption && node.credit ? ' · ' : null}
+                {node.credit ? (
+                  <Editable
+                    as="span"
+                    text={node.credit}
+                    marks={[]}
+                    onCommit={update && ((credit) => update({ ...node, credit: credit || null }))}
+                  />
+                ) : null}
+              </figcaption>
             ) : null}
           </div>
         </figure>
@@ -126,16 +250,103 @@ function renderNode(node: ContentNode, src: (file: string) => string, key: numbe
             } as React.CSSProperties
           }
         >
-          {node.title ? <h3 className="text-frame-content">{node.title}</h3> : null}
+          {node.title ? (
+            <Editable
+              as="h3"
+              className="text-frame-content"
+              text={node.title}
+              marks={[]}
+              onCommit={update && ((title) => update({ ...node, title: title || null }))}
+            />
+          ) : null}
           {node.content.map((child, i) => (
-            <Fragment key={`${key}-${i}`}>{renderNode(child, src, i)}</Fragment>
+            <Fragment key={`${key}-${i}`}>
+              {renderNode(
+                child,
+                src,
+                i,
+                update &&
+                  ((next) =>
+                    update({
+                      ...node,
+                      content: next
+                        ? node.content.map((old, j) => (j === i ? next : old))
+                        : node.content.filter((_, j) => j !== i)
+                    }))
+              )}
+            </Fragment>
           ))}
         </div>
       );
   }
 }
 
-/** Only the marks Vrhl-Blad MDX has: strikethrough is not one of them. */
+const NO_SPANS: StyleSpan[] = [];
+
+const SHORTCUTS: Record<string, InlineStyle> = { b: 'bold', i: 'italic', u: 'underline' };
+
+/**
+ * Eén stuk tekst, en zonder `onCommit` gewoon wat er staat.
+ *
+ * Wat iemand typt blijft in de DOM tot het veld de focus verliest; pas dan wordt
+ * het teruggelezen. Tussendoor opnieuw renderen zou React laten verzoenen met
+ * een DOM die de browser al heeft omgegooid. Na het vastleggen krijgt het
+ * element een nieuwe key en begint het schoon, met de tekst zoals het artikel
+ * hem nu kent.
+ *
+ * `marks` zegt welke opmaak het veld mag dragen. Een kop is al vet en een quote
+ * kent geen opmaak, dus daar doen ⌘B en ⌘I niets.
+ */
+function Editable({
+  as: Tag,
+  text,
+  spans = NO_SPANS,
+  marks,
+  className,
+  onCommit
+}: {
+  as: 'p' | 'h1' | 'h3' | 'li' | 'span';
+  text: string;
+  spans?: StyleSpan[];
+  marks: readonly InlineStyle[];
+  className?: string;
+  onCommit?: (text: string, spans: StyleSpan[]) => void;
+}) {
+  if (!onCommit) return <Tag className={className}>{styled(text, spans)}</Tag>;
+
+  return (
+    <Tag
+      key={`${text}|${JSON.stringify(spans)}`}
+      className={className}
+      contentEditable
+      suppressContentEditableWarning
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === 'Escape') {
+          e.preventDefault();
+          e.currentTarget.blur();
+          return;
+        }
+        const style = e.metaKey || e.ctrlKey ? SHORTCUTS[e.key.toLowerCase()] : undefined;
+        if (style && !marks.includes(style)) e.preventDefault();
+      }}
+      onPaste={(e) => {
+        // Geplakte opmaak van een website of uit Word hoort niet in het artikel.
+        e.preventDefault();
+        document.execCommand('insertText', false, e.clipboardData.getData('text/plain').replace(/\s+/g, ' '));
+      }}
+      onDrop={(e) => e.preventDefault()}
+      onBlur={(e) => {
+        const read = readBack(e.currentTarget);
+        const next = { text: read.text, spans: spansFrom(read, marks) };
+        if (!looksSame(next, { text, spans })) onCommit(next.text, next.spans);
+      }}
+    >
+      {styled(text, spans)}
+    </Tag>
+  );
+}
+
+/** Only the marks the format has: strikethrough is not one of them. */
 const TAGS: Partial<Record<InlineStyle, 'strong' | 'em' | 'u'>> = {
   bold: 'strong',
   italic: 'em',
@@ -177,11 +388,43 @@ function linked(text: string): ReactNode {
 }
 
 /** A frontmatter field with the italics run 1 found in it. */
-function field(fm: Frontmatter, name: FrontmatterField): ReactNode {
+function Field({
+  fm,
+  name,
+  as,
+  className,
+  onEdit
+}: {
+  fm: Frontmatter;
+  name: FrontmatterField;
+  as: 'p' | 'h1';
+  className?: string;
+  onEdit?: (fm: Frontmatter) => void;
+}) {
   const spans: StyleSpan[] = fm.italics
     .filter((entry) => entry.field === name)
     .map((entry) => ({ text: entry.text, style: ['italic'] }));
-  return styled(fm[name] ?? '', spans);
+  return (
+    <Editable
+      as={as}
+      className={className}
+      text={fm[name] ?? ''}
+      spans={spans}
+      marks={['italic']}
+      onCommit={
+        onEdit &&
+        ((text, next) =>
+          onEdit({
+            ...fm,
+            [name]: text || null,
+            italics: [
+              ...fm.italics.filter((entry) => entry.field !== name),
+              ...next.map((span) => ({ field: name, text: span.text }))
+            ]
+          }))
+      }
+    />
+  );
 }
 
 /**

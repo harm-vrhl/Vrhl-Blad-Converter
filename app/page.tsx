@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { cn } from "cn";
-import { ArrowLeft, FileCode, FileJson, Loader2, Package, UploadCloud } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  Copy,
+  FileCode,
+  FileJson,
+  Loader2,
+  Package,
+  RotateCcw,
+  UploadCloud,
+} from "lucide-react";
 import { ArticleView } from "@/components/ArticleView";
 import { Checks } from "@/components/Checks";
 import { MagazineView } from "@/components/MagazineView";
@@ -13,7 +23,6 @@ import { SegmentedControl } from "@/components/SegmentedControl";
 import { Workflow, type WorkflowStep } from "@/components/Workflow";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 // Geen Tooltip hier met opzet: de hints bij de schakelaar en de Sanity-knop zijn
 // juist nodig als die knoppen uit staan, en een tooltip krijgt op een disabled
 // element geen pointer-events. Het native title-attribuut wel.
@@ -22,7 +31,6 @@ import type { RenderStep } from "@/lib/client/render";
 import { blankFrontmatter, compileArticle } from "@/lib/compile";
 import { toPackage } from "@/lib/canonical";
 import { toMdx } from "@/lib/mdx";
-import { fromMdx } from "@/lib/frommdx";
 import { parsePage } from "@/lib/pagemarkup";
 import { applyStyles } from "@/lib/patch";
 import { placeFragments } from "@/lib/place";
@@ -38,7 +46,7 @@ import type {
 } from "@/lib/types";
 
 type Phase = "idle" | "rendering" | "ready" | "running" | "done" | "error";
-type Tab = "paginas" | "artikel" | "mdx" | "checks";
+type Tab = "paginas" | "artikel" | "json" | "checks";
 
 type Step = WorkflowStep;
 
@@ -73,11 +81,13 @@ export default function Home() {
   const [status, setStatus] = useState<StatusLine[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
   /**
-   * De MDX zoals iemand hem heeft bijgewerkt, of null zolang niemand iets deed.
-   * Null en "gelijk aan wat de AI schreef" zijn niet hetzelfde: alleen dat eerste
-   * betekent dat er niets te herstellen valt.
+   * Het artikel zoals iemand het in de Artikel-tab heeft rechtgezet, of null
+   * zolang niemand iets deed. Null en "gelijk aan wat de AI schreef" zijn niet
+   * hetzelfde: alleen dat eerste betekent dat er niets te herstellen valt.
    */
-  const [mdxEdit, setMdxEdit] = useState<string | null>(null);
+  const [edited, setEdited] = useState<ArticleDocument | null>(null);
+  /** Even "Gekopieerd" naast de JSON, daarna weer de knop. */
+  const [copied, setCopied] = useState(false);
   const [text, setText] = useState<Record<number, string>>({});
   const [patches, setPatches] = useState<Record<number, Patch[]>>({});
   // What run 2 read off the page. It lands while run 1 is still writing, which
@@ -116,6 +126,8 @@ export default function Home() {
   const [converting, setConverting] = useState(false);
   const uploadDisabled = phase === "rendering" || phase === "running" || converting;
   const showMagazine = mode === "magazine" && view === "magazine";
+  /** Het afgeronde artikel met de correcties erin: wat de exports krijgen. */
+  const current = edited ?? doc;
 
   const accept = useCallback(async (file: File, opening?: number): Promise<Job | null> => {
     if (!file.name.toLowerCase().endsWith(".pdf")) {
@@ -126,7 +138,7 @@ export default function Home() {
     setNotice(null);
     setStatus([]);
     setTotals(null);
-    setMdxEdit(null);
+    setEdited(null);
     setText({});
     setPatches({});
     setFragments({});
@@ -195,7 +207,7 @@ export default function Home() {
     setPhase("running");
     setStatus([]);
     setTotals(null);
-    setMdxEdit(null);
+    setEdited(null);
     setText({});
     setPatches({});
     setFragments({});
@@ -307,7 +319,7 @@ export default function Home() {
 
       setStatus([]);
       setTotals(null);
-      setMdxEdit(null);
+      setEdited(null);
       setText({});
       setPatches({});
       setFragments({});
@@ -350,23 +362,15 @@ export default function Home() {
   /**
    * Het artikel als Vrhl Content Package: pakket.json plus het beeld, in een ZIP.
    *
-   * Wat in de MDX is bijgewerkt gaat mee. De server kent alleen wat de run heeft
-   * opgeslagen, dus het artikel zoals het nu op het scherm staat reist mee in de
-   * body; anders levert de knop iets anders af dan je ziet.
+   * Wat in de Artikel-tab is rechtgezet gaat mee. De server kent alleen wat de
+   * run heeft opgeslagen, dus het artikel zoals het nu op het scherm staat reist
+   * mee in de body; anders levert de knop iets anders af dan je ziet.
    */
   const downloadPackage = useCallback(async () => {
-    if (!job || !doc) return;
+    if (!job || !current) return;
     setPacking(true);
     setNotice(null);
     try {
-      let current = doc;
-      if (mdxEdit !== null) {
-        try {
-          current = fromMdx(mdxEdit, doc, job.images ?? []);
-        } catch {
-          current = doc; // halfgetypte MDX is geen reden om niets te leveren
-        }
-      }
       const res = await fetch(`/api/jobs/${job.id}/package`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -390,28 +394,20 @@ export default function Home() {
     } finally {
       setPacking(false);
     }
-  }, [job, doc, mdxEdit]);
+  }, [job, current]);
 
   /**
    * Het artikel naar Sanity, als concept.
    *
    * Wat hier weggaat is het pakket, niet het artikelobject: de importer leest
-   * hetzelfde formaat dat ook naar MDX of Word gaat. Het schrijven zelf gebeurt
+   * hetzelfde formaat dat ook naar MDX of Word gaat, met de correcties erin. Het schrijven zelf gebeurt
    * op de server, want het token hoort de browser nooit te zien.
    */
   const pushSanity = useCallback(async () => {
-    if (!job || !doc) return;
+    if (!job || !current) return;
     setPushing(true);
     setNotice(null);
     try {
-      let current = doc;
-      if (mdxEdit !== null) {
-        try {
-          current = fromMdx(mdxEdit, doc, job.images ?? []);
-        } catch {
-          current = doc;
-        }
-      }
       const res = await fetch(`/api/jobs/${job.id}/sanity`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -444,20 +440,22 @@ export default function Home() {
     } finally {
       setPushing(false);
     }
-  }, [job, doc, mdxEdit]);
+  }, [job, current]);
 
   /**
-   * Het canonieke pakket, en de MDX die eruit volgt.
+   * Het canonieke pakket, zoals het naar Sanity en in de ZIP gaat.
    *
-   * De MDX komt niet meer rechtstreeks uit het artikelobject maar uit het
-   * pakket, zodat er één bron is waar elke vertaalslag uit leest. Wat je in de
-   * MDX-tab ziet is dus letterlijk wat er in het pakket staat.
+   * De JSON-tab laat precies dit zien, en de MDX-export wordt hier uit
+   * geschreven, net zoals elke andere vertaalslag dat zou doen.
    */
   const pakket = useMemo(
-    () => (doc ? toPackage(doc, { images: job?.images ?? [] }) : null),
-    [doc, job],
+    () => (current ? toPackage(current, { images: job?.images ?? [] }) : null),
+    [current, job],
   );
-  const mdx = useMemo(() => (pakket ? toMdx(pakket) : ""), [pakket]);
+  const pakketJson = useMemo(
+    () => (pakket ? JSON.stringify(pakket, null, 2) : ""),
+    [pakket],
+  );
 
   const pageResults = useMemo(
     () => Object.values(results).sort((a, b) => a.page - b.page),
@@ -561,16 +559,7 @@ export default function Home() {
   }, [status, results, job]);
 
   const preview: ArticleDocument | null = useMemo(() => {
-    if (doc && mdxEdit !== null) {
-      // Halfgetypte MDX is geen reden om het artikel te laten verdwijnen; wat er
-      // nog niet van te lezen valt, blijft even staan zoals het stond.
-      try {
-        return fromMdx(mdxEdit, doc, job?.images ?? []);
-      } catch {
-        return doc;
-      }
-    }
-    if (doc) return doc;
+    if (current) return current;
 
     const pages: PageResult[] = [...pageResults];
     for (const [key, raw] of Object.entries(text)) {
@@ -603,7 +592,7 @@ export default function Home() {
       { file: job?.filename ?? "", pages: pages.map((p) => p.page) },
       approved,
     ).document;
-  }, [doc, mdxEdit, frontmatter, pageResults, results, text, patches, fragments, approved, job]);
+  }, [current, frontmatter, pageResults, results, text, patches, fragments, approved, job]);
 
   const idle = !job && phase !== "rendering";
   const noticeOk = !!notice && notice.startsWith("Naar Sanity");
@@ -827,7 +816,7 @@ export default function Home() {
                 aria-label="Weergave"
                 value={tab}
                 onChange={(next) => setTab(next)}
-                options={(["paginas", "artikel", "mdx", "checks"] as Tab[]).map(
+                options={(["paginas", "artikel", "json", "checks"] as Tab[]).map(
                   (t) => ({
                     id: t,
                     label: LABELS[t],
@@ -840,16 +829,14 @@ export default function Home() {
                 <QuietToolbar aria-label="Exporteren">
                   <ToolbarButton
                     type="button"
-                    onClick={() =>
-                      download("artikel.json", JSON.stringify(doc, null, 2))
-                    }
+                    onClick={() => download("pakket.json", pakketJson)}
                   >
                     <FileJson className="size-3.5" />
                     JSON
                   </ToolbarButton>
                   <ToolbarButton
                     type="button"
-                    onClick={() => download("artikel.mdx", mdxEdit ?? mdx)}
+                    onClick={() => pakket && download("artikel.mdx", toMdx(pakket))}
                   >
                     <FileCode className="size-3.5" />
                     MDX
@@ -901,44 +888,71 @@ export default function Home() {
           {tab === "artikel" ? (
             preview && job ? (
               <section className="mb-8">
-                <p className="mb-3 text-right text-xs text-muted-foreground">
-                  {phase === "running"
-                    ? `${pageResults.length}/${job.pageCount} pagina's`
-                    : `${preview.content.length} blokken`}
-                </p>
+                <div className="mb-3 flex min-h-7 items-center gap-3 text-xs text-muted-foreground">
+                  {doc && edited ? (
+                    <>
+                      <span className="font-medium text-foreground">Bijgewerkt</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setEdited(null)}
+                      >
+                        <RotateCcw className="size-3.5" />
+                        Terug naar AI-resultaat
+                      </Button>
+                    </>
+                  ) : doc ? (
+                    <span>
+                      Klik in de tekst om te corrigeren. ⌘B, ⌘I en ⌘U voor
+                      opmaak; een blok leegmaken haalt het weg.
+                    </span>
+                  ) : null}
+                  <span className="ml-auto whitespace-nowrap">
+                    {phase === "running"
+                      ? `${pageResults.length}/${job.pageCount} pagina's`
+                      : `${preview.content.length} blokken`}
+                  </span>
+                </div>
                 <div
                   className="overflow-hidden rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.04)] ring-1 ring-black/5"
                   data-running={phase === "running" ? "true" : undefined}
                 >
-                  <ArticleView doc={preview} jobId={job.id} />
+                  <ArticleView
+                    doc={preview}
+                    jobId={job.id}
+                    onEdit={doc ? setEdited : undefined}
+                  />
                 </div>
               </section>
             ) : null
           ) : null}
 
-          {tab === "mdx" && doc ? (
+          {tab === "json" && pakket ? (
             <section className="overflow-hidden rounded-xl bg-black/[0.04]">
               <header className="flex items-center gap-4 px-4 py-2.5">
                 <span className="text-sm text-muted-foreground">
-                  MDX{mdxEdit !== null ? " · bijgewerkt" : ""}
+                  pakket.json · alleen-lezen
+                  {edited ? " · met je correcties" : ""}
                 </span>
-                {mdxEdit !== null ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="ml-auto"
-                    onClick={() => setMdxEdit(null)}
-                  >
-                    Terug naar wat de AI schreef
-                  </Button>
-                ) : null}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(pakketJson).then(() => {
+                      setCopied(true);
+                      window.setTimeout(() => setCopied(false), 1500);
+                    });
+                  }}
+                >
+                  {copied ? <Check /> : <Copy />}
+                  {copied ? "Gekopieerd" : "Kopiëren"}
+                </Button>
               </header>
-              <Textarea
-                spellCheck={false}
-                value={mdxEdit ?? mdx}
-                onChange={(e) => setMdxEdit(e.target.value)}
-                className="min-h-[60vh] rounded-none border-0 bg-transparent px-4 pb-4 font-mono text-xs leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0"
-              />
+              <pre className="px-4 pb-4 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
+                {pakketJson}
+              </pre>
             </section>
           ) : null}
           {tab === "checks" ? (
@@ -961,7 +975,7 @@ const ALWAYS: Tab[] = ["paginas", "artikel", "checks"];
 const LABELS: Record<Tab, string> = {
   paginas: "Pagina's",
   artikel: "Artikel",
-  mdx: "MDX",
+  json: "JSON",
   checks: "Controle",
 };
 

@@ -17,7 +17,7 @@ export const runtime = 'nodejs';
  * Met de ZIP uitgepakt slaagt `node canonical/validate.mjs pakket.json
  * --bestanden`, en dat is precies de controle die de andere kant ook doet.
  *
- * POST bestaat omdat de MDX te bewerken is. Wie een woord heeft rechtgezet
+ * POST bestaat omdat het artikel te bewerken is. Wie een woord heeft rechtgezet
  * verwacht dat terug in het pakket, en de server kent alleen wat de run heeft
  * opgeslagen. Dus stuurt de interface mee wat er op dat moment op het scherm
  * staat; zonder body blijft het bij wat er is bewaard.

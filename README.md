@@ -300,7 +300,7 @@ lib/llm/            Mistral OCR, en één chatclient voor OpenAI en Mistral
 
 Eén artikelobject: `frontmatter` plus een platte `content`-lijst van
 `paragraph`, `subheading`, `quote`, `streamer`, `image` en `insert`. Dat is wat
-de app intern rondstuurt en wat de MDX-tab laat bewerken.
+de app intern rondstuurt, en wat je in de Artikel-tab corrigeert.
 
 Naar buiten gaat het als **Vrhl Content Package 1.0**, het canonieke
 uitwisselformaat uit `Vrhl-Blad-Canonical/canonical/`. Dat formaat kent geen CMS
@@ -309,10 +309,11 @@ en geen opslagtechniek: één `pakket.json` met de artikelen en een aparte
 lopen de vertaalslagen naar MDX, Word, HTML of Sanity, zonder dat deze converter
 van een van die kanten iets hoeft te weten.
 
-De MDX-tab is daar meteen het bewijs van: die tekst wordt niet meer uit het
-artikelobject geschreven maar uit het pakket, net zoals een Word- of
-Sanity-adapter dat zou doen. Wat je in de MDX ziet staat dus letterlijk in
-`pakket.json`.
+De JSON-tab laat dat pakket zien zoals het naar Sanity en in de ZIP gaat,
+alleen-lezen. Correcties doe je in de Artikel-tab: klik in de tekst, ⌘B/⌘I/⌘U
+voor opmaak, een blok leegmaken haalt het weg. *Terug naar AI-resultaat* zet
+alles terug. MDX is alleen nog een export, uit het pakket geschreven zoals een
+Word-adapter dat ook zou doen.
 
 *Download pakket* levert een ZIP met `pakket.json` en het beeld ernaast. Zo
 uitgepakt is het te controleren met de validator van het formaat zelf:

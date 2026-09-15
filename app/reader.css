@@ -257,3 +257,27 @@
   background: var(--reader-text);
   vertical-align: -1px;
 }
+
+/* Bewerken in het voorbeeld. De markering neemt de kleur van de tekst zelf, zodat
+ * hij op de witte pagina, in een gekleurd kader en over de openingsfoto even
+ * zichtbaar is.
+ */
+.reader [contenteditable='true'] {
+  outline: none;
+  border-radius: 3px;
+  cursor: text;
+  transition: box-shadow 120ms ease, background-color 120ms ease;
+}
+.reader [contenteditable='true']:hover {
+  background-color: color-mix(in srgb, currentColor 5%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 5%, transparent);
+}
+.reader [contenteditable='true']:focus {
+  background-color: color-mix(in srgb, currentColor 7%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 7%, transparent),
+    0 0 0 5px color-mix(in srgb, currentColor 18%, transparent);
+}
+.reader .reader-title[contenteditable='true']:empty::before {
+  content: 'Zonder titel';
+  opacity: 0.35;
+}
