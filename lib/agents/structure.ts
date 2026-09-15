@@ -24,6 +24,7 @@ export async function writeStructure(
   image: string,
   ocr: string,
   available: ExtractedImage[],
+  boxOnly: ExtractedImage[],
   previousTail: string,
   onDelta: (text: string) => void
 ): Promise<StructureResult> {
@@ -42,20 +43,28 @@ ${ctx.context ? `\nWhat is already known about this article:\n${ctx.context}` : 
 
 Images on this page, ripped out of the PDF and already judged to belong to the
 article. Refer to one by its id; place every one of them somewhere:
+${available.map(listed).join('\n') || '  (none)'}
 ${
-      available
-        .map(
-          (img) =>
-            `  ${img.id} - printed ${img.placed.w}x${img.placed.h}pt at x=${img.placed.x} y=${img.placed.y}, ${img.areaPct}% of the page` +
-            (img.nearby ? `; the text printed right next to it reads: "${img.nearby}"` : '')
-        )
-        .join('\n') || '  (none)'
-    }
-
+  boxOnly.length
+    ? `
+Images on this page that the image check set aside as an advert or as another
+piece's. Place one ONLY inside a box you put in this article, and only when it is
+printed inside that box's panel. Anywhere else, leave it out:
+${boxOnly.map(listed).join('\n')}
+`
+    : ''
+}
 OCR of this page (the words that exist):
 ${ocr}`,
     images: [await pageImageUrl(ctx, image)]
   });
 
-  return { ...parsePage(page, raw, available), raw };
+  return { ...parsePage(page, raw, available, boxOnly), raw };
+}
+
+function listed(img: ExtractedImage): string {
+  return (
+    `  ${img.id} - printed ${img.placed.w}x${img.placed.h}pt at x=${img.placed.x} y=${img.placed.y}, ${img.areaPct}% of the page` +
+    (img.nearby ? `; the text printed right next to it reads: "${img.nearby}"` : '')
+  );
 }

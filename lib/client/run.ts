@@ -2,7 +2,7 @@
 
 import type { StyleFragment } from '../agents/styling';
 import { blankFrontmatter, compileArticle } from '../compile';
-import { obviouslyDecorative } from '../imagefilter';
+import { boxOnly, obviouslyDecorative, rescueBoxed } from '../imagefilter';
 import { textOf as textOfBlocks } from '../pagemarkup';
 import { applyStyles } from '../patch';
 import { placeFragments } from '../place';
@@ -257,6 +257,7 @@ async function* article(job: StoredJob, provider: 'openai' | 'mistral', started:
     return frontmatter;
   })();
 
+  let boxed: ExtractedImage[] = [];
   const judgingImages = (async () => {
     opening.push({ type: 'status', run: 'beeldbeoordeling', state: 'start', detail: `${job.images.length} bitmap(s) uit de PDF` });
     let verdicts: ImageVerdict[] = [];
@@ -311,6 +312,7 @@ async function* article(job: StoredJob, provider: 'openai' | 'mistral', started:
         .map(([imageId, reason]) => ({ id: imageId, keep: false, kind: 'ornament' as const, reason }))
     ];
     job.verdicts = all;
+    boxed = boxOnly(job.images, all);
     opening.push({ type: 'images', verdicts: all });
     opening.push({
       type: 'status',
@@ -361,6 +363,7 @@ async function* article(job: StoredJob, provider: 'openai' | 'mistral', started:
           asset,
           ocr: ocrByPage.get(asset.page),
           images: approved.filter((image) => image.page === asset.page),
+          boxOnly: boxed.filter((image) => image.page === asset.page),
           previousTail: i > 0 ? (ocrByPage.get(assets[i - 1].page)?.markdown ?? '').slice(-TAIL) : '',
           isFirst: i === 0,
           isLast: i === assets.length - 1,
@@ -379,6 +382,19 @@ async function* article(job: StoredJob, provider: 'openai' | 'mistral', started:
 
   for await (const event of queue.drain()) yield event;
   const results = await work;
+
+  const rescue = rescueBoxed(job.verdicts ?? [], results);
+  if (rescue.rescued.length) {
+    job.verdicts = rescue.verdicts;
+    await putData(id, 'images.json', { images: job.images, verdicts: rescue.verdicts });
+    yield { type: 'images', verdicts: rescue.verdicts };
+    yield {
+      type: 'status',
+      run: 'beeldbeoordeling',
+      state: 'ok',
+      detail: `${rescue.rescued.join(', ')} toch geplaatst: staat in een kader van het artikel`
+    };
+  }
 
   // String the pages together into one article.
   yield { type: 'status', run: 'compileren', state: 'start' };
@@ -417,6 +433,7 @@ async function* article(job: StoredJob, provider: 'openai' | 'mistral', started:
     asset: PageAsset;
     ocr: OcrPage | undefined;
     images: ExtractedImage[];
+    boxOnly: ExtractedImage[];
     previousTail: string;
     isFirst: boolean;
     isLast: boolean;
@@ -502,7 +519,7 @@ async function* article(job: StoredJob, provider: 'openai' | 'mistral', started:
       postStream<RunEvent | { type: 'structure'; blocks: Block[]; continuity: Continuity; check: IndexCheck; usage: RunUsage }>(
         '/api/run/page',
         runForm(
-          { provider, page: n, image: asset.image, markdown, images: page.images, previousTail: page.previousTail, context },
+          { provider, page: n, image: asset.image, markdown, images: page.images, boxOnly: page.boxOnly, previousTail: page.previousTail, context },
           await files([asset.image]),
           `Pagina ${n}`
         ),

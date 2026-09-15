@@ -9,6 +9,7 @@ const BULLET = /^[-–•*]\s+(.*)$/;
 const NUMBER = /^\d{1,2}[.)]\s+(.*)$/;
 
 const IMAGE = /^\[image\s*:?\s*([^\]]*)\]$/i;
+const BITMAP_ID = /^(img|crop)-[\w-]+$/i;
 const INSERT_OPEN = /^\[insert\s*:?\s*([^\]]*)\]$/i;
 const INSERT_CLOSE = /^\[\/insert\]$/i;
 const FLOW = /^\[continues-(from-previous|on-next)\s*:\s*([^\]]*)\]$/i;
@@ -33,7 +34,9 @@ const FLOW = /^\[continues-(from-previous|on-next)\s*:\s*([^\]]*)\]$/i;
 export function parsePage(
   page: number,
   raw: string,
-  available: ExtractedImage[]
+  available: ExtractedImage[],
+  /** Pictures that may only stand inside a box; see boxOnly. Named anywhere else, they are left out. */
+  boxOnly: ExtractedImage[] = []
 ): { blocks: Block[]; continuity: Continuity } {
   const body = reader(available);
   let fromPrevious = false;
@@ -80,7 +83,7 @@ export function parsePage(
       // the colour of the type on it. The colours are optional.
       const [title, background, ink] = open[1].split('|').map((part) => part.trim());
       body.flush();
-      box = { title: title ?? '', background: hex(background), ink: hex(ink), inside: reader(available) };
+      box = { title: title ?? '', background: hex(background), ink: hex(ink), inside: reader([...available, ...boxOnly]) };
       continue;
     }
 
@@ -144,7 +147,10 @@ function reader(available: ExtractedImage[]): Reader {
       const image = IMAGE.exec(trimmed);
       if (image) {
         flush();
-        blocks.push(imageBlock(image[1], available));
+        // An id this reader was not given is a picture the triage turned away, or
+        // one that does not exist: leaving it out beats an empty frame.
+        const id = image[1].split('|')[0].trim();
+        if (!BITMAP_ID.test(id) || available.some((c) => c.id === id)) blocks.push(imageBlock(image[1], available));
         return;
       }
 
@@ -198,15 +204,23 @@ function hex(value: string | undefined): string | null {
   return null;
 }
 
+/**
+ * A caption or credit that is nothing but an embedded file's own name - a stray
+ * "img-1.jpeg" the OCR handed back because the picture carried no real text near
+ * it. That is not a caption anyone wrote, so it is dropped rather than printed.
+ */
+const FILENAME = /^[\w-]+\.(jpe?g|png|gif|tiff?|bmp|webp|heic|heif|svg|eps)$/i;
+
 function imageBlock(body: string, available: ExtractedImage[]): PageBlock {
   const parts = body.split('|').map((part) => part.trim());
   let ref: string | null = null;
   if (parts[0] && available.some((c) => c.id === parts[0])) ref = parts.shift() as string;
-  else if (/^(img-[\w-]+|crop-[\w-]+|-)?$/i.test(parts[0] ?? '')) parts.shift();
+  else if (parts[0] === '-' || !parts[0]) parts.shift();
 
   const value = (raw: string | undefined) => {
     const text = (raw ?? '').trim();
-    return text && text !== '-' ? cleanupText(text) : null;
+    if (!text || text === '-' || FILENAME.test(text)) return null;
+    return cleanupText(text);
   };
 
   const bitmap = available.find((c) => c.id === ref);

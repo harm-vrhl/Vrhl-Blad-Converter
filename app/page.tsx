@@ -57,6 +57,7 @@ import type { RenderStep } from "@/lib/client/render";
 import { blankFrontmatter, compileArticle, frameTitlesAsHeadings } from "@/lib/compile";
 import { toPackage } from "@/lib/canonical";
 import { toMdx } from "@/lib/mdx";
+import { boxOnly } from "@/lib/imagefilter";
 import { parsePage } from "@/lib/pagemarkup";
 import { applyStyles } from "@/lib/patch";
 import { placeFragments } from "@/lib/place";
@@ -565,6 +566,7 @@ export default function Home() {
     const rejected = new Set(verdicts.filter((v) => !v.keep).map((v) => v.id));
     return (job?.images ?? []).filter((image) => !rejected.has(image.id));
   }, [job, verdicts]);
+  const boxed = useMemo(() => boxOnly(job?.images ?? [], verdicts), [job, verdicts]);
 
   // The article as it stands right now, built by the same compileArticle the
   // pipeline finishes with. That is the point: the live preview cannot drift
@@ -661,7 +663,7 @@ export default function Home() {
     for (const [key, raw] of Object.entries(text)) {
       const page = Number(key);
       if (results[page] || !raw.trim()) continue;
-      const { blocks, continuity } = parsePage(page, raw, approved);
+      const { blocks, continuity } = parsePage(page, raw, approved, boxed);
       // The run's placed patches once it has sent them, and until then run 2's
       // own fragments, placed against the text that has arrived so far.
       const marks = patches[page]?.length
@@ -688,7 +690,7 @@ export default function Home() {
       { file: job?.filename ?? "", pages: pages.map((p) => p.page) },
       approved,
     ).document;
-  }, [current, frontmatter, pageResults, results, text, patches, fragments, approved, job]);
+  }, [current, frontmatter, pageResults, results, text, patches, fragments, approved, boxed, job]);
 
   const idle = !job && phase !== "rendering";
   const workspace = !showMagazine && !(idle || (phase === "rendering" && !job));

@@ -209,14 +209,33 @@
   margin: 8px 0 32px;
 }
 
+/* Een missend beeld, niet een dropzone: een kader krijgt zijn stippelrand alleen
+ * tijdens het slepen (zie [data-dropzone] verderop), dus deze rand blijft bewust
+ * dicht en gevuld - anders lijkt het permanent alsof je hier iets kwijt kan.
+ */
 .reader .placeholder {
-  border: 1px dashed color-mix(in srgb, var(--reader-text) 30%, transparent);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--reader-text) 18%, transparent);
+  background: color-mix(in srgb, var(--reader-text) 5%, transparent);
   border-radius: 8px;
   padding: 32px 16px;
   font-family: var(--reader-sans, "Merriweather Sans"), ui-sans-serif, system-ui, sans-serif;
   font-size: 13px;
   color: var(--reader-text-400);
   text-align: center;
+}
+.reader .placeholder svg {
+  width: 28px;
+  height: 28px;
+  opacity: 0.55;
+  margin-bottom: 4px;
+}
+.reader .placeholder .placeholder-detail {
+  font-size: 11px;
+  opacity: 0.7;
 }
 
 /* ── Kader: its own colours, not the page's ──────────────────────────────── */

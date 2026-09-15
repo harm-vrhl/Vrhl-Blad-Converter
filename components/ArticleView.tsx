@@ -220,7 +220,11 @@ function renderNode(node: ContentNode, owner: string, key: number, update?: Upda
             {node.file ? (
               <StoredImage owner={owner} name={node.file} alt={node.caption ?? ''} />
             ) : (
-              <div className="placeholder">{node.id}, geen bitmap uit de OCR</div>
+              <div className="placeholder" title={`blok ${node.id}: geen bitmap uit de OCR gekoppeld`}>
+                {MISSING_IMAGE_ICON}
+                <span>Geen afbeelding gevonden</span>
+                <span className="placeholder-detail">blok {node.id} · geen bitmap uit de OCR</span>
+              </div>
             )}
             {node.caption || node.credit ? (
               <figcaption>
@@ -446,6 +450,22 @@ function Field({
     />
   );
 }
+
+/**
+ * Marks a missing image as missing, not as somewhere to drop something: a kader
+ * gets a dashed outline exactly while a block hovers over it, but this box has
+ * no drop behaviour at all and sits there dashed forever, which reads as the
+ * same affordance. A plain broken-picture glyph and solid frame keep the two
+ * apart at a glance.
+ */
+const MISSING_IMAGE_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <circle cx="8.5" cy="9.5" r="1.5" fill="currentColor" stroke="none" />
+    <path d="M21 15.5l-5-5-4 4-2-2-5.5 5.5" />
+    <path d="M3 3l18 18" />
+  </svg>
+);
 
 /**
  * The credit icons of vrhl-blad.nl itself, taken from the files the site serves:

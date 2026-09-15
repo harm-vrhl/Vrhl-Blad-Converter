@@ -20,6 +20,8 @@ interface Input {
   markdown: string;
   /** De beelden op deze pagina die bij het artikel horen. */
   images: ExtractedImage[];
+  /** Door de beoordeling afgewezen beelden die alleen in een kader van het artikel mogen. */
+  boxOnly: ExtractedImage[];
   previousTail: string;
   /** Wat de frontmatter al vastlegde, zodat run 1 het niet herhaalt. */
   context: string;
@@ -33,11 +35,11 @@ export async function POST(request: Request) {
   const run = await readRun<Input>(request);
   return sse(async (send) => {
     requireKeys(run.provider);
-    const { page, image, markdown = '', images = [], previousTail = '', context = '' } = run.input;
+    const { page, image, markdown = '', images = [], boxOnly = [], previousTail = '', context = '' } = run.input;
     const ctx = agentCtx(run, context);
     const index = buildIndex(page, markdown);
 
-    let result = await writeStructure(ctx, page, image, markdown, images, previousTail, (text) =>
+    let result = await writeStructure(ctx, page, image, markdown, images, boxOnly, previousTail, (text) =>
       send({ type: 'delta', page, text })
     );
     // Gecontroleerd op de blokken, niet op de ruwe uitvoer: de markers zijn van
@@ -52,7 +54,7 @@ export async function POST(request: Request) {
         page,
         detail: `${check.unknown.length} woorden buiten de index, tweede poging`
       });
-      const retry = await writeStructure(ctx, page, image, markdown, images, previousTail, () => undefined);
+      const retry = await writeStructure(ctx, page, image, markdown, images, boxOnly, previousTail, () => undefined);
       const retryCheck = checkAgainstIndex(index, textOf(retry.blocks));
       if (retryCheck.unknown.length < check.unknown.length) {
         result = retry;
