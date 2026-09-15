@@ -108,7 +108,9 @@ platte `content`-lijst.
 ### Stap 3. Nakijken en exporteren
 
 - **Tabbladen**: *Pagina's*, *Artikel* (live voorbeeld, tekst direct te
-  corrigeren, met een knop terug naar het AI-resultaat), *JSON* (de canonieke
+  corrigeren, blokken te verslepen met de greep links van elk blok, ook een kader
+  in en uit, met een knop
+  terug naar het AI-resultaat), *JSON* (de canonieke
   `pakket.json`, alleen-lezen), *Controle* (woorddekking per pagina,
   beeldoordelen, waarschuwingen).
 - **Pakket**: het artikel als **Vrhl Content Package** (`toPackage`, `pakket.json`

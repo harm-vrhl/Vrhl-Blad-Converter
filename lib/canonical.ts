@@ -350,10 +350,9 @@ function blok(node: ContentNode, claim: Claim): Blok | null {
     }
 
     case 'insert': {
-      // De titel van het kader is in dit formaat gewoon de eerste kop erin: een
-      // tekstkader heeft geen eigen titelveld.
+      // Een tekstkader heeft geen eigen titelveld; zijn kop is een blok erin, en
+      // dat is het in het artikelobject ook.
       const inner: BlokZonderKader[] = [];
-      if (node.title) inner.push({ soort: 'kop', niveau: 3, inhoud: node.title });
       for (const child of node.content) {
         const made = blok(child, claim);
         if (!made) continue;

@@ -216,6 +216,8 @@ lib/zip.ts            pakket.json plus het beeld als ZIP, zonder dependency en
                       zonder compressie, zodat het in de browser draait
 lib/mdx.ts            schrijft MDX, en leest daarvoor het PAKKET, niet het
                       artikelobject: het pakket is de bron, MDX een consument
+components/BlockDrag.tsx  blokken verslepen in de Artikel-tab, ook een kader in en uit: greep bij hover,
+                      pointer-events (geen HTML-drag-and-drop), pijltjes, Escape
 lib/client/edit.ts    leest een correctie uit de Artikel-tab terug naar
                       tekst plus styles, met dezelfde telling als spans.ts
 lib/sanity/client.ts  de drie endpoints van Sanity, met fetch en zonder SDK

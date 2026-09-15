@@ -248,7 +248,11 @@ export type ContentNode =
   | {
       type: 'insert';
       kind: string;
-      title: string | null;
+      /**
+       * Geen eigen titel: de kop van een kader is gewoon een blok erin, net als in
+       * het canonieke formaat (een tekstkader is inhoud plus kleuren). Zo is die
+       * kop te verplaatsen zoals elk ander blok.
+       */
       /** The printed tint of the box, and the type colour on it. */
       background: string | null;
       ink: string | null;

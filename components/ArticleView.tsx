@@ -4,6 +4,7 @@ import { Fragment, type ReactNode } from 'react';
 import { cn } from 'cn';
 import { readerSans, readerSerif } from '@/app/reader-fonts';
 import '@/app/reader.css';
+import { BlockDragProvider, BlockList, useFrameDrop } from '@/components/BlockDrag';
 import { StoredImage } from '@/components/StoredImage';
 import { looksSame, readBack, spansFrom } from '@/lib/client/edit';
 import { linkify } from '@/lib/links';
@@ -27,6 +28,9 @@ import type {
  * iemand verandert komt als nieuw artikelobject terug; een blok leegmaken haalt
  * het weg. De vorm van het artikel verandert niet: geen blokken erbij, geen
  * beeld verplaatsen. Daarvoor is de PDF er.
+ *
+ * Wat wel kan: de volgorde. Elk blok heeft dan een greep om het te verslepen,
+ * in de lopende tekst, binnen een kader, en een kader in of uit (`BlockDrag`).
  */
 export function ArticleView({
   doc,
@@ -71,23 +75,28 @@ export function ArticleView({
             <Field fm={fm} name="intro" as="p" onEdit={setFm} />
           </div>
         ) : null}
-        {doc.content.map((node, i) => (
-          <Fragment key={i}>
-            {renderNode(
-              node,
-              jobId,
-              i,
-              onEdit &&
-                ((next) =>
-                  onEdit({
-                    ...doc,
-                    content: next
-                      ? doc.content.map((old, j) => (j === i ? next : old))
-                      : doc.content.filter((_, j) => j !== i)
-                  }))
-            )}
-          </Fragment>
-        ))}
+        <BlockDragProvider content={doc.content} onChange={onEdit && ((content) => onEdit({ ...doc, content }))}>
+          <BlockList
+            box={null}
+            nodes={doc.content}
+            render={(node, i) =>
+              renderNode(
+                node,
+                jobId,
+                i,
+                onEdit &&
+                  ((next) =>
+                    onEdit({
+                      ...doc,
+                      content: next
+                        ? doc.content.map((old, j) => (j === i ? next : old))
+                        : doc.content.filter((_, j) => j !== i)
+                    })),
+                true
+              )
+            }
+          />
+        </BlockDragProvider>
       </div>
     </div>
   );
@@ -146,7 +155,8 @@ function Credits({ fm, onEdit }: { fm: Frontmatter; onEdit?: (fm: Frontmatter) =
 /** Een blok vervangen, of met null weghalen. */
 type Update = (node: ContentNode | null) => void;
 
-function renderNode(node: ContentNode, owner: string, key: number, update?: Update): ReactNode {
+/** `topLevel`: het blok staat in de hoofdtekst, op plek `key`; alleen dan is een kader een dropzone. */
+function renderNode(node: ContentNode, owner: string, key: number, update?: Update, topLevel = false): ReactNode {
   switch (node.type) {
     case 'paragraph':
       return (
@@ -237,46 +247,58 @@ function renderNode(node: ContentNode, owner: string, key: number, update?: Upda
         </figure>
       );
     case 'insert':
-      return (
-        <div
-          className="text-frame-block"
-          style={
-            {
-              backgroundColor: node.background ?? '#EBE8E4',
-              color: node.ink ?? undefined,
-              '--frame-text-color': node.ink ?? undefined
-            } as React.CSSProperties
-          }
-        >
-          {node.title ? (
-            <Editable
-              as="h3"
-              className="text-frame-content"
-              text={node.title}
-              marks={[]}
-              onCommit={update && ((title) => update({ ...node, title: title || null }))}
-            />
-          ) : null}
-          {node.content.map((child, i) => (
-            <Fragment key={`${key}-${i}`}>
-              {renderNode(
-                child,
-                owner,
-                i,
-                update &&
-                  ((next) =>
-                    update({
-                      ...node,
-                      content: next
-                        ? node.content.map((old, j) => (j === i ? next : old))
-                        : node.content.filter((_, j) => j !== i)
-                    }))
-              )}
-            </Fragment>
-          ))}
-        </div>
-      );
+      return <Frame node={node} owner={owner} box={topLevel ? key : null} update={update} />;
   }
+}
+
+/**
+ * Een kader, met zijn eigen kleuren. In de hoofdtekst is het ook een dropzone: een
+ * blok kan erin, en zijn eigen blokken kunnen eruit.
+ */
+function Frame({
+  node,
+  owner,
+  box,
+  update
+}: {
+  node: Extract<ContentNode, { type: 'insert' }>;
+  owner: string;
+  box: number | null;
+  update?: Update;
+}) {
+  const drop = useFrameDrop(box);
+  const children = (child: ContentNode, i: number) =>
+    renderNode(
+      child,
+      owner,
+      i,
+      update &&
+        ((next) =>
+          update({
+            ...node,
+            content: next ? node.content.map((old, j) => (j === i ? next : old)) : node.content.filter((_, j) => j !== i)
+          }))
+    );
+
+  return (
+    <div
+      {...drop}
+      className="text-frame-block"
+      style={
+        {
+          backgroundColor: node.background ?? '#EBE8E4',
+          color: node.ink ?? undefined,
+          '--frame-text-color': node.ink ?? undefined
+        } as React.CSSProperties
+      }
+    >
+      {box != null ? (
+        <BlockList box={box} nodes={node.content} render={children} />
+      ) : (
+        node.content.map((child, i) => <Fragment key={i}>{children(child, i)}</Fragment>)
+      )}
+    </div>
+  );
 }
 
 const NO_SPANS: StyleSpan[] = [];

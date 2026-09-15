@@ -380,7 +380,15 @@ van een van die kanten iets hoeft te weten.
 
 De JSON-tab laat dat pakket zien zoals het naar Sanity en in de ZIP gaat,
 alleen-lezen. Correcties doe je in de Artikel-tab: klik in de tekst, ⌘B/⌘I/⌘U
-voor opmaak, een blok leegmaken haalt het weg. *Terug naar AI-resultaat* zet
+voor opmaak, een blok leegmaken haalt het weg. De volgorde verander je met de greep
+die links van een blok verschijnt als je eroverheen beweegt (slepen, of de greep in
+focus en dan pijltjes omhoog en omlaag). Een blok kan ook een kader in of uit: sleep
+het midden in een kader (dat kleurt oranje met "In dit kader zetten") of sleep het
+eruit (de lijn zegt dan "Uit het kader halen"). Met de pijltjes gaat een blok dat
+tegen een kader aan schuift erin, en het eerste of laatste blok van een kader eruit.
+Een kader kan niet in een ander kader, en een kader dat leeg raakt verdwijnt. De kop
+van een kader is een blok als elk ander: net als in het canonieke formaat heeft een
+kader geen vaste titel, dus ook die kop kun je verplaatsen. *Terug naar AI-resultaat* zet
 alles terug. MDX is alleen nog een export, uit het pakket geschreven zoals een
 Word-adapter dat ook zou doen.
 

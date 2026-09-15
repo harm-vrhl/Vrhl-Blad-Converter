@@ -89,7 +89,7 @@ export function compileArticle(
 
   const body = pullsAfterSource(content);
   const header = liftHero(body, images, ordered[0]?.page);
-  return { document: { source, frontmatter, header, content: body }, seams };
+  return { document: frameTitlesAsHeadings({ source, frontmatter, header, content: body }), seams };
 }
 
 function occurrences(text: string, needle: string): number {
@@ -235,3 +235,23 @@ function repeatedAcrossPages(pages: PageResult[]): Set<string> {
   const threshold = Math.max(2, Math.ceil(pages.length * 0.6));
   return new Set([...counts].filter(([, n]) => n >= threshold).map(([key]) => key));
 }
+
+/**
+ * Een kader uit een oudere run of een eerder opgeslagen artikel heeft nog een
+ * eigen `title`. Dat veld bestaat niet meer: de titel wordt het eerste blok in
+ * het kader, een tussenkop, zodat hij te verplaatsen is als elk ander blok.
+ */
+export function frameTitlesAsHeadings(doc: ArticleDocument): ArticleDocument {
+  const fix = (nodes: ContentNode[]): ContentNode[] =>
+    nodes.map((node) => {
+      if (node.type !== 'insert') return node;
+      const { title, ...rest } = node as typeof node & { title?: string | null };
+      const content = fix(node.content);
+      return {
+        ...rest,
+        content: title ? [{ type: 'subheading' as const, content: title }, ...content] : content
+      };
+    });
+  return { ...doc, content: fix(doc.content) };
+}
+

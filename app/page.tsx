@@ -41,7 +41,7 @@ import {
 } from "@/lib/client/db";
 import { packageZip, pushToSanity } from "@/lib/client/exports";
 import type { RenderStep } from "@/lib/client/render";
-import { blankFrontmatter, compileArticle } from "@/lib/compile";
+import { blankFrontmatter, compileArticle, frameTitlesAsHeadings } from "@/lib/compile";
 import { toPackage } from "@/lib/canonical";
 import { toMdx } from "@/lib/mdx";
 import { parsePage } from "@/lib/pagemarkup";
@@ -311,7 +311,7 @@ export default function Home() {
 
       setStatus([]);
       setTotals(loaded.totals);
-      setEdited(loaded.edited);
+      setEdited(loaded.edited && frameTitlesAsHeadings(loaded.edited));
       setText({});
       setPatches({});
       setFragments({});
@@ -322,7 +322,7 @@ export default function Home() {
       setResults(Object.fromEntries(saved.map((p) => [p.page, p])));
       setVerdicts(loaded.verdicts ?? []);
       setFrontmatter(loaded.document?.frontmatter ?? null);
-      setDoc(loaded.document);
+      setDoc(loaded.document && frameTitlesAsHeadings(loaded.document));
       setPhase(loaded.document ? "done" : "ready");
       setTab(loaded.document ? "artikel" : "paginas");
       setView("artikel");

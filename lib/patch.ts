@@ -240,13 +240,16 @@ function build(block: PageBlock, placed: StyleSpan[][], id: string, cursor: { ne
         size: block.size ?? 'normal'
       };
     case 'insert':
+      // De kop die run 1 in de marker zet, wordt het eerste blok van het kader.
       return {
         type: 'insert',
         kind: 'box',
-        title: block.text || null,
         background: block.background ?? null,
         ink: block.ink ?? null,
-        content: (block.children ?? []).map((child) => build(child, placed, id, cursor))
+        content: [
+          ...(block.text ? [{ type: 'subheading' as const, content: block.text }] : []),
+          ...(block.children ?? []).map((child) => build(child, placed, id, cursor))
+        ]
       };
     default:
       return { type: 'paragraph', content: block.text, styles: placed[cursor.next++] ?? [] };
