@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from 'node:path';
 import { livePreview } from '../components/article/preview';
 import { workflowSteps, type StatusLine } from '../components/article/steps';
+import { pageLabel, pageRange, summarizeSkipped } from '../components/magazine/labels';
 import { toPackage } from '../lib/canonical';
 import { compileArticle, frameTitlesAsHeadings } from '../lib/compile';
 import { boxOnly, rescueBoxed } from '../lib/imagefilter';
@@ -135,7 +136,14 @@ function magazine(dir: string): Outputs | null {
   const scans = read<Parameters<typeof stitch>[0]>(dir, 'scans.json');
   const mag = read<{ pages: Parameters<typeof stitch>[1] }>(dir, 'magazine.json');
   if (!scans || !mag) return null;
-  return { stitch: attempt(() => stitch(scans, mag.pages)) };
+  const map = attempt(() => stitch(scans, mag.pages)) as ReturnType<typeof stitch>;
+  return {
+    stitch: map,
+    labels: attempt(() => ({
+      articles: map.articles.map((a) => [pageRange(a, true), pageRange(a, false), pageLabel(a)]),
+      skipped: summarizeSkipped(map)
+    }))
+  };
 }
 
 function hash(value: unknown): string {
