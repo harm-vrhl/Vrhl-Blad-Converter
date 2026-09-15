@@ -106,7 +106,7 @@ wordt Personalia een artikel per persoon.
 (kop links, intro rechts). `MapArticle.opening` zegt welke pagina's dat zijn en
 reist als `Job.opening` mee naar de artikel-run. De frontmatter-agent begint met
 zoveel pagina's, en zonder die kennis met twee (`OPENING_DEFAULT` in
-`lib/client/run.ts`). Begin nooit weer met één pagina en stop bij de eerste kop: dan
+`lib/client/run/opening.ts`). Begin nooit weer met één pagina en stop bij de eerste kop: dan
 mist hij een intro op de pagina ernaast en schrijft run 1 die in de body.
 
 Daarna knipt de browser per gekozen artikel de hele pagina's uit het magazine
@@ -196,6 +196,9 @@ prompts.json          alle prompts, buiten de code. Data, geen code.
 lib/prompts.ts        laadt prompts.json, herlaadt bij wijziging,
                       houdt bij een JSON-fout de laatst werkende versie
 lib/client/run.ts     de orkestratie in de browser: wat draait wanneer, wat parallel
+lib/client/run/       de fases van één run, op volgorde: context (tempo, bon, once),
+                      words (OCR), opening (frontmatter en beeld, kopcontrole),
+                      page (run 1 en 2 per pagina)
 lib/client/db.ts      IndexedDB: jobs, magazines, bestanden, tussenresultaten
 lib/client/post.ts    verzoeken bouwen (runForm, 4,4 MB-grens) en SSE lezen
 lib/client/limiter.ts het tempo: maximum tegelijk, Mistral 1 start per seconde
