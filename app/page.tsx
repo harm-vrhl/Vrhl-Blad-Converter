@@ -13,10 +13,12 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   RotateCcw,
+  Trash2,
   UploadCloud,
 } from "lucide-react";
 import { ArticleView } from "@/components/ArticleView";
 import { Checks } from "@/components/Checks";
+import { Logo } from "@/components/Logo";
 import { MagazineView } from "@/components/MagazineView";
 import { PageThumbs } from "@/components/PageThumbs";
 import { ProviderSwitch } from "@/components/ProviderSwitch";
@@ -25,6 +27,15 @@ import { SegmentedControl } from "@/components/SegmentedControl";
 import { Workflow, type WorkflowStep } from "@/components/Workflow";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 // Geen Tooltip hier met opzet: de hints bij de schakelaar en de Sanity-knop zijn
 // juist nodig als die knoppen uit staan, en een tooltip krijgt op een disabled
 // element geen pointer-events. Het native title-attribuut wel.
@@ -688,9 +699,8 @@ export default function Home() {
       <header className="z-20 shrink-0 border-b bg-white/80 backdrop-blur-md">
         <div className="flex h-14 items-center justify-between gap-4 px-6">
           <div className="flex items-center gap-3">
-            <h1 className="flex items-baseline gap-2 text-sm tracking-tight">
-              <span className="font-semibold">Vrhl</span>
-              <span className="text-muted-foreground">Blad</span>
+            <h1 className="flex">
+              <Logo className="h-8" />
             </h1>
             {workspace ? (
               <Button
@@ -1189,6 +1199,8 @@ function Earlier({
   onDelete: (id: string) => Promise<void>;
 }) {
   const [removing, setRemoving] = useState<string | null>(null);
+  /** Het artikel waarvoor de vraag "zeker weten?" open staat. */
+  const [confirming, setConfirming] = useState<StoredJob | null>(null);
   return (
     <section className="mt-10 w-full" aria-label="Eerder omgezet">
       <header className="mb-2 flex items-baseline justify-between gap-4">
@@ -1224,21 +1236,53 @@ function Earlier({
             </button>
             <Button
               variant="ghost"
-              size="sm"
-              className="text-muted-foreground"
+              size="icon-sm"
+              className="text-muted-foreground hover:text-destructive"
               disabled={removing === j.id}
+              aria-label={`"${j.filename}" verwijderen`}
+              title="Verwijderen"
+              onClick={() => setConfirming(j)}
+            >
+              {removing === j.id ? <Loader2 className="animate-spin" /> : <Trash2 />}
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <Dialog open={confirming != null} onOpenChange={(open) => !open && setConfirming(null)}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Weet je zeker dat je dit wilt verwijderen?</DialogTitle>
+            <DialogDescription>
+              {confirming ? (
+                <>
+                  <span className="font-medium text-foreground">
+                    {confirming.document?.frontmatter.title ?? confirming.filename}
+                  </span>{" "}
+                  staat daarna niet meer opgeslagen in deze browser. Dit kun je niet ongedaan maken.
+                </>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Annuleren</Button>
+            </DialogClose>
+            <Button
+              variant="destructive"
               onClick={async () => {
-                if (!window.confirm(`"${j.filename}" en alles wat erbij hoort uit deze browser verwijderen?`)) return;
-                setRemoving(j.id);
-                await onDelete(j.id);
+                if (!confirming) return;
+                const id = confirming.id;
+                setConfirming(null);
+                setRemoving(id);
+                await onDelete(id);
                 setRemoving(null);
               }}
             >
               Verwijderen
             </Button>
-          </li>
-        ))}
-      </ul>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

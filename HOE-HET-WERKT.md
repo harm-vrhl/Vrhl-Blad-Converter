@@ -108,7 +108,7 @@ platte `content`-lijst.
 ### Stap 3. Nakijken en exporteren
 
 - **Workflow-zijbalk**: de stappen staan in een zwevend eiland links. Met de knop
-  naast "Vrhl Blad" klap je het weg; het werkgebied wordt dan breder. De keuze
+  naast het logo klap je het weg; het werkgebied wordt dan breder. De keuze
   wordt onthouden. Op een smal scherm ligt het eiland over het werkgebied heen en
   sluit het met Escape of een klik ernaast.
 

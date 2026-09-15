@@ -2,8 +2,11 @@
 
 import { cn } from "cn";
 import {
+  AlarmClock,
+  Bot,
   Check,
   CircleAlert,
+  Coins,
   FileText,
   Heading,
   ImageIcon,
@@ -16,7 +19,6 @@ import type { ReactNode } from "react";
 import {
   ChainOfThought,
   ChainOfThoughtContent,
-  ChainOfThoughtHeader,
   ChainOfThoughtSearchResult,
   ChainOfThoughtSearchResults,
   ChainOfThoughtStep,
@@ -137,9 +139,9 @@ export function Workflow({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
-        <ChainOfThought defaultOpen>
-          <ChainOfThoughtHeader>
-            <span className="flex items-center gap-2">
+        <ChainOfThought open>
+          <div className="flex w-full items-center gap-2 text-muted-foreground text-sm">
+            <span className="flex flex-1 items-center gap-2">
               {title}
               {steps.length ? (
                 <ChainOfThoughtSearchResults>
@@ -149,7 +151,7 @@ export function Workflow({
                 </ChainOfThoughtSearchResults>
               ) : null}
             </span>
-          </ChainOfThoughtHeader>
+          </div>
 
           {steps.length ? (
             <div className="space-y-1.5">
@@ -272,13 +274,19 @@ export function Workflow({
       {totals ? (
         <div className="grid shrink-0 grid-cols-2 gap-x-4 gap-y-2 border-t border-sidebar-border px-4 py-3 text-xs">
           <div>
-            <div className="text-muted-foreground">Tijd</div>
+            <div className="flex items-center gap-1 text-muted-foreground">
+              <AlarmClock className="size-3.5" />
+              Tijd
+            </div>
             <div className="tabular-nums text-foreground">
               {duration(totals.ms)}
             </div>
           </div>
           <div>
-            <div className="text-muted-foreground">Tokens</div>
+            <div className="flex items-center gap-1 text-muted-foreground">
+              <Bot className="size-3.5" />
+              Tokens
+            </div>
             <div className="tabular-nums text-foreground">
               {totals.tokens.toLocaleString("nl-NL")}
               <span className="ml-1 text-muted-foreground">
@@ -288,7 +296,10 @@ export function Workflow({
           </div>
           {totals.cost ? (
             <div className="col-span-2">
-              <div className="text-muted-foreground">Kosten</div>
+              <div className="flex items-center gap-1 text-muted-foreground">
+                <Coins className="size-3.5" />
+                Kosten
+              </div>
               <div className="tabular-nums text-foreground">
                 {money(totals.cost.total, totals.cost.currency)}
                 <span className="ml-1 text-muted-foreground">

@@ -22,5 +22,5 @@ export async function middleware(request: NextRequest) {
 export const config = {
   // Alles behalve de loginpagina zelf, het inloggen, en wat Next en pdf.js aan
   // statische bestanden serveren.
-  matcher: ['/((?!login|api/login|_next/static|_next/image|favicon.ico|pdf.worker.min.mjs).*)']
+  matcher: ['/((?!login|api/login|_next/static|_next/image|favicon.ico|icon.svg|pdf.worker.min.mjs).*)']
 };

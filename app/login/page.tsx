@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 
 export default function LoginPage() {
@@ -44,9 +45,8 @@ function Login() {
   return (
     <div className="flex min-h-svh items-center justify-center px-6">
       <form onSubmit={submit} className="grid w-full max-w-sm gap-4">
-        <h1 className="flex items-baseline gap-2 text-sm tracking-tight">
-          <span className="font-semibold">Vrhl</span>
-          <span className="text-muted-foreground">Blad</span>
+        <h1 className="mb-2 flex">
+          <Logo className="h-10" />
         </h1>
         <p className="text-sm text-muted-foreground">
           Vul het wachtwoord van de redactie in.
