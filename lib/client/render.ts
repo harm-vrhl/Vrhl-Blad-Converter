@@ -3,7 +3,7 @@
 import { ripImages, type RippedImage } from './images';
 import { readTypography, type TypographySource } from './typography';
 import type { StyleFragment } from '../agents/styling';
-import { withTimeout } from '../util';
+import { errorMessage, withTimeout } from '../util';
 
 export interface RenderedPage {
   page: number;
@@ -131,7 +131,7 @@ export async function renderPdf(
         doc.numPages
       );
     } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
+      const detail = errorMessage(err);
       throw new Error(`Pagina ${i}: ${detail}`);
     } finally {
       page.cleanup();

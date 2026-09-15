@@ -16,7 +16,7 @@ import type {
   PageScan
 } from '../magazine/types';
 import type { RunUsage } from '../types';
-import { EventQueue } from '../util';
+import { errorMessage, EventQueue } from '../util';
 import { loadMagazine, needFile, putData, saveMagazine } from './db';
 import { limiter, type Limiter } from './limiter';
 import { postJson, runForm } from './post';
@@ -83,7 +83,7 @@ export async function* analyzeMagazine(
   try {
     yield* analyze(magazine, provider);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     magazine.status = 'error';
     magazine.error = message;
     await saveMagazine(magazine).catch(() => undefined);
@@ -140,7 +140,7 @@ async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): Asy
       } catch (err) {
         // One page that cannot be read does not lose the magazine; the stitching
         // marks the article it falls in.
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         const scan: PageScan = { pdf: page.pdf, kind: 'overig', facing: 'geen', folio: null, pieces: [], toc: [], error: message };
         scanning.push({ type: 'scan', scan });
         scanning.push({ type: 'status', run: 'paginascan', state: 'fail', page: page.pdf, detail: message });
@@ -250,7 +250,7 @@ async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): Asy
           checking.push({ type: 'content', check });
           checking.push({ type: 'status', run: 'inhoudscontrole', state: 'ok', page: question.pdf, detail: `${label}: ${answer.verdict}` });
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
+          const message = errorMessage(err);
           article.notes.push(`De inhoudscontrole van PDF-pagina ${question.pdf} mislukte: ${message}`);
           article.certain = false;
           checking.push({ type: 'status', run: 'inhoudscontrole', state: 'fail', page: question.pdf, detail: `${label}: ${message}` });
@@ -323,7 +323,7 @@ async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): Asy
           checking.push({ type: 'map', map });
           checking.push({ type: 'status', run: 'grenscontrole', state: 'ok', page: to.pages[0], detail: `${label}: ${answer.verdict}` });
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
+          const message = errorMessage(err);
           from.notes.push(`De grenscontrole met "${to.title ?? to.id}" mislukte: ${message}`);
           from.certain = false;
           checking.push({ type: 'status', run: 'grenscontrole', state: 'fail', page: to.pages[0], detail: `${label}: ${message}` });

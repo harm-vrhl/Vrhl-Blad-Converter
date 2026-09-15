@@ -20,7 +20,7 @@ import type {
   RunEvent,
   RunUsage
 } from '../types';
-import { EventQueue, pad2 } from '../util';
+import { errorMessage, EventQueue, pad2 } from '../util';
 import { buildIndex } from '../wordindex';
 import { deleteData, getData, loadJob, needFile, putData, saveJob, type StoredJob, type Totals } from './db';
 import { limiter, type Limiter } from './limiter';
@@ -117,7 +117,7 @@ export async function* runArticle(
   try {
     yield* article(job, provider, started);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     job.status = 'error';
     job.error = message;
     await saveJob(job).catch(() => undefined);
@@ -297,7 +297,7 @@ async function* article(job: StoredJob, provider: 'openai' | 'mistral', started:
         type: 'status',
         run: 'beeldbeoordeling',
         state: 'fail',
-        detail: err instanceof Error ? err.message : String(err)
+        detail: errorMessage(err)
       });
     }
     for (const verdict of verdicts) {
@@ -371,7 +371,7 @@ async function* article(job: StoredJob, provider: 'openai' | 'mistral', started:
         });
       } catch (err) {
         // One page going wrong is not a reason to lose the others.
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         emit({ type: 'status', run: 'pagina', state: 'fail', page: asset.page, detail: message });
         const empty = emptyPage(asset.page, message, i === assets.length - 1);
         emit({ type: 'page', page: asset.page, result: empty });
@@ -505,7 +505,7 @@ async function* article(job: StoredJob, provider: 'openai' | 'mistral', started:
         })
         .catch((err: unknown) => {
           // The page keeps its text; it just comes out unmarked.
-          const message = err instanceof Error ? err.message : String(err);
+          const message = errorMessage(err);
           warnings.push(`run 2 opmaak: ${message}`);
           emit({ type: 'status', run: 'run 2 opmaak', state: 'fail', page: n, detail: message });
           return [];

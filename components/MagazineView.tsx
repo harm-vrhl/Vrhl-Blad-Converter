@@ -29,7 +29,7 @@ import { streamRun, uploadArticle } from "@/lib/client/article";
 import { analyzeMagazine } from "@/lib/client/analyze";
 import { fileUrl, needFile, newId, putFile, saveMagazine } from "@/lib/client/db";
 import { cutArticle, scanMagazine } from "@/lib/client/magazine";
-import { pad2 } from "@/lib/util";
+import { errorMessage, pad2 } from "@/lib/util";
 import type { RenderStep } from "@/lib/client/render";
 import type { StoredJob } from "@/lib/client/db";
 import type {
@@ -198,7 +198,7 @@ export function MagazineView({
       setPhase("ready");
     } catch (err) {
       setRendered(null);
-      setNotice(err instanceof Error ? err.message : String(err));
+      setNotice(errorMessage(err));
       setPhase("error");
     }
   }, []);
@@ -218,7 +218,7 @@ export function MagazineView({
       for await (const event of analyzeMagazine(magazine.id, provider)) handle(event);
       if (!failed) setPhase((p) => (p === "analyzing" ? "done" : p));
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : String(err));
+      setNotice(errorMessage(err));
       setPhase("error");
     }
 
@@ -299,7 +299,7 @@ export function MagazineView({
             });
             update(id, ok ? { state: "klaar" } : { state: "fout", error: seen.failure ?? "de run stopte zonder artikel" });
           } catch (err) {
-            update(id, { state: "fout", error: err instanceof Error ? err.message : String(err) });
+            update(id, { state: "fout", error: errorMessage(err) });
           }
         }
       };
@@ -333,7 +333,7 @@ export function MagazineView({
       setSelected(new Set());
       void runArticles(items);
     } catch (err) {
-      setNotice(`De artikelen konden niet worden uitgeknipt: ${err instanceof Error ? err.message : String(err)}`);
+      setNotice(`De artikelen konden niet worden uitgeknipt: ${errorMessage(err)}`);
     } finally {
       setCutting(false);
     }

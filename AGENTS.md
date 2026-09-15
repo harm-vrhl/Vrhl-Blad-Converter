@@ -243,7 +243,8 @@ lib/llm/chat.ts       één client voor OpenAI en Mistral: fetch, geen SDK, stre
 lib/llm/ratelimit.ts  houdt zich aan de limieten die Mistral in elk antwoord meldt
 lib/llm/mistral.ts    OCR, alleen woorden, één pagina per call
 app/                  UI en API-routes
-components/           Stream (live), ArticleView, Checks, Prompts, StoredImage
+components/           Workflow (de zijbalk), ArticleView, MagazineView, Checks, PageThumbs, StoredImage
+scripts/golden.ts     het vangnet: rekent de vaste stappen door op .data/jobs en vergelijkt
 .data/jobs/<id>/      alleen nog oude jobs van vóór de browseropslag; niets leest
                       of schrijft hier meer
 ```
@@ -260,8 +261,6 @@ run opnieuw ingelezen zodra het gewijzigd is; een herstart is niet nodig.
 - Prompts zijn in het Engels, alles wat de gebruiker leest is in het Nederlands.
 - `effort` is `null` (neem `.env.local`) of `minimal|low|medium|high`.
 
-Het tabblad **Prompts** en `GET /api/prompts` tonen wat er op dat moment naar
-elke run gaat.
 
 ## Het formaat van run 1
 
@@ -290,8 +289,16 @@ tekst verloren doordat een marker misgaat. Houd dat zo als je markers toevoegt.
 
 ```bash
 npx tsc --noEmit
+npm run golden
 npm run build
 ```
+
+`npm run golden` rekent compileren, het pakket, MDX, de beeldregels en `stitch`
+door op de oude jobs en magazines in `.data/jobs/` en vergelijkt de uitkomst met
+de hashes in `scripts/golden.json`. Het kost geen tokens. Wijkt er iets af, dan
+staat de nieuwe uitkomst in `.data/golden-diff/`. Is dat verschil de bedoeling,
+leg het dan vast met `npm run golden -- --update`, in dezelfde commit als de
+wijziging. Bij verhuizen of opsplitsen van code mag er niets afwijken.
 
 Een volledige run kost geld: ongeveer 14 runs en 69k tokens voor een artikel van
 zes pagina's. Doe dat alleen als het nodig is.

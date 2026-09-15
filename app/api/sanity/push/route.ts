@@ -4,6 +4,7 @@ import { SanityError } from '@/lib/sanity/client';
 import { pushPackage } from '@/lib/sanity/push';
 import { readRun } from '@/lib/server/run';
 import type { ExtractedImage } from '@/lib/types';
+import { errorMessage } from '@/lib/util';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
   } catch (err) {
     const status = err instanceof SanityError && err.status >= 400 ? err.status : 500;
     return Response.json(
-      { error: err instanceof Error ? err.message : String(err), detail: err instanceof SanityError ? err.detail : undefined },
+      { error: errorMessage(err), detail: err instanceof SanityError ? err.detail : undefined },
       { status }
     );
   }

@@ -337,7 +337,6 @@ deploy.
 `medium` · `high`); `null` betekent: neem `OPENAI_REASONING_EFFORT` of
 `MISTRAL_REASONING_EFFORT` uit `.env.local`, afhankelijk van wie schrijft.
 
-Het tabblad **Prompts** in de app toont wat er op dat moment naar elke run gaat.
 De datapayload (OCR, blokken, page image) wordt in code samengesteld en staat
 niet in het bestand.
 
@@ -345,7 +344,7 @@ niet in het bestand.
 
 ```
 app/                UI en API-routes
-components/         Stream (live), ArticleView, Checks, Prompts
+components/         Workflow, ArticleView, MagazineView, Checks
 prompts.json        alle prompts, buiten de code, om te tweaken
 lib/agents/         frontmaster, imagetriage, structure (run 1), styling (run 2)
 lib/client/images.ts  ript de bitmaps uit de PDF met pdf.js

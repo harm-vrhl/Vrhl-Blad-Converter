@@ -6,6 +6,7 @@ import type { ArticleDocument, PageResult } from '../types';
 import { zip, type ZipEntry } from '../zip';
 import { getData, getFile, type StoredJob } from './db';
 import { postJson, runForm } from './post';
+import { errorMessage } from '../util';
 
 /**
  * De uitvoer van een artikel: het canonieke pakket als ZIP, en hetzelfde pakket
@@ -69,7 +70,7 @@ export async function pushToSanity(
       );
       assets[asset.id] = result._id;
     } catch (err) {
-      warnings.push(`asset '${asset.id}' kon niet worden geupload: ${err instanceof Error ? err.message : String(err)}`);
+      warnings.push(`asset '${asset.id}' kon niet worden geupload: ${errorMessage(err)}`);
     }
   }
   onProgress?.(files.length, files.length);

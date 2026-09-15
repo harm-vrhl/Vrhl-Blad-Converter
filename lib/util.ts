@@ -182,3 +182,8 @@ function closeOpen(src: string): string {
   if (inString) text += '"';
   return text + open.reverse().join('');
 }
+
+/** The message of anything thrown: an Error's own message, anything else as text. */
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}

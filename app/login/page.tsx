@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
+import { errorMessage } from "@/lib/util";
 
 export default function LoginPage() {
   return (
@@ -37,7 +38,7 @@ function Login() {
       const terug = params.get("terug") ?? "/";
       window.location.assign(terug.startsWith("/") && !terug.startsWith("//") ? terug : "/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
       setBusy(false);
     }
   }

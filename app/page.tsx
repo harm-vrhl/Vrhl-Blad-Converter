@@ -70,6 +70,7 @@ import type {
   Patch,
   RunEvent,
 } from "@/lib/types";
+import { errorMessage } from "@/lib/util";
 
 type Phase = "idle" | "rendering" | "ready" | "running" | "done" | "error";
 type Tab = "paginas" | "artikel" | "json" | "checks";
@@ -194,7 +195,7 @@ export default function Home() {
       return landed;
     } catch (err) {
       setRenderStep(null);
-      setNotice(err instanceof Error ? err.message : String(err));
+      setNotice(errorMessage(err));
       setPhase("error");
       return null;
     }
@@ -292,7 +293,7 @@ export default function Home() {
       const stored = await loadJob(run.id);
       if (stored) setJob(stored);
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : String(err));
+      setNotice(errorMessage(err));
       setPhase("error");
       finished = false;
     }
@@ -395,7 +396,7 @@ export default function Home() {
       setTab(loaded.document ? "artikel" : "paginas");
       setView("artikel");
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : String(err));
+      setNotice(errorMessage(err));
     }
   }, []);
 
@@ -498,7 +499,7 @@ export default function Home() {
       URL.revokeObjectURL(url);
     } catch (err) {
       setNotice(
-        `Het pakket kon niet worden gemaakt: ${err instanceof Error ? err.message : String(err)}`,
+        `Het pakket kon niet worden gemaakt: ${errorMessage(err)}`,
       );
     } finally {
       setPacking(false);
@@ -532,7 +533,7 @@ export default function Home() {
       );
     } catch (err) {
       setNotice(
-        `Het duwen naar Sanity is niet gelukt: ${err instanceof Error ? err.message : String(err)}`,
+        `Het duwen naar Sanity is niet gelukt: ${errorMessage(err)}`,
       );
     } finally {
       setPushing(null);

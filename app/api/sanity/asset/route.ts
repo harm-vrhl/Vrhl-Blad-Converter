@@ -1,6 +1,7 @@
 import { sanityReady } from '@/lib/env';
 import { SanityError, uploadImage } from '@/lib/sanity/client';
 import { readRun } from '@/lib/server/run';
+import { errorMessage } from '@/lib/util';
 
 export const runtime = 'nodejs';
 
@@ -28,7 +29,7 @@ export async function POST(request: Request) {
   } catch (err) {
     const status = err instanceof SanityError && err.status >= 400 ? err.status : 500;
     return Response.json(
-      { error: err instanceof Error ? err.message : String(err), detail: err instanceof SanityError ? err.detail : undefined },
+      { error: errorMessage(err), detail: err instanceof SanityError ? err.detail : undefined },
       { status }
     );
   }

@@ -1,5 +1,6 @@
 import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { errorMessage } from './util';
 
 export interface RunPrompt {
   titel: string;
@@ -43,7 +44,7 @@ function load(): PromptFile {
       cachedAt = mtime;
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     if (!cache) throw new Error(`prompts.json kon niet worden gelezen: ${message}`);
     console.warn(`[prompts] prompts.json is ongeldig (${message}); de vorige versie blijft in gebruik`);
   }

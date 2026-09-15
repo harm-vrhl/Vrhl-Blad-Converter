@@ -11,6 +11,7 @@ import {
 } from './documents';
 import type { Pakket } from '../canonical';
 import type { ExtractedImage } from '../types';
+import { errorMessage } from '../util';
 
 /**
  * De importstappen in volgorde, zoals `stappen` in canonical/sanity/mapping.json:
@@ -147,5 +148,5 @@ async function findTag(naam: string, slug?: string): Promise<string | null> {
 }
 
 function message(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return errorMessage(err);
 }

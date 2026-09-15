@@ -3,6 +3,7 @@ import { env, missingKeys, PROVIDERS, type Provider } from '../env';
 import { aiCost, mistralLimit, newLedger, type Ledger, type ModelChoice } from '../llm/chat';
 import { ocrCost, type OcrLedger } from '../llm/mistral';
 import type { RunUsage } from '../types';
+import { errorMessage } from '../util';
 
 /**
  * Wat elke run-route deelt.
@@ -91,7 +92,7 @@ export async function json(work: () => Promise<unknown>): Promise<Response> {
     return Response.json(await work());
   } catch (err) {
     const status = err instanceof Refusal ? err.status : 500;
-    return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status });
+    return Response.json({ error: errorMessage(err) }, { status });
   }
 }
 
@@ -107,7 +108,7 @@ export function sse(work: (send: (event: unknown) => void) => Promise<void>): Re
       try {
         await work(send);
       } catch (err) {
-        send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+        send({ type: 'error', message: errorMessage(err) });
       } finally {
         controller.close();
       }

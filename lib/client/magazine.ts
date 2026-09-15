@@ -1,6 +1,6 @@
 'use client';
 
-import { withTimeout } from '../util';
+import { errorMessage, withTimeout } from '../util';
 
 export interface ScannedPage {
   pdf: number;
@@ -83,7 +83,7 @@ export async function scanMagazine(
         doc.numPages
       );
     } catch (err) {
-      throw new Error(`Pagina ${i}: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`Pagina ${i}: ${errorMessage(err)}`);
     } finally {
       page.cleanup();
     }
