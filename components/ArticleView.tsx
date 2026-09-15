@@ -59,8 +59,10 @@ export function ArticleView({
     <div className={cn('reader', readerSerif.variable, readerSans.variable)}>
       {doc.header ? (
         <div className="reader-hero">
-          <StoredImage owner={jobId} name={doc.header.file} alt={doc.header.alt ?? ''} />
-          <div className="reader-hero-wash" />
+          <div className="reader-hero-media">
+            <StoredImage owner={jobId} name={doc.header.file} alt={doc.header.alt ?? ''} />
+            <div className="reader-hero-wash" />
+          </div>
           <div className="reader-hero-text">{heading}</div>
         </div>
       ) : (
