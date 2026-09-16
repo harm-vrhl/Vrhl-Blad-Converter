@@ -170,7 +170,11 @@ Daaruit volgen vaste regels:
    wie het geschreven heeft, dus hervatten na het wisselen van aanbieder of na een
    promptwijziging levert een gemengde uitkomst.
 6. **Een slot op de deur.** `middleware.ts` met `APP_PASSWORD`; zonder die
-   variabele staat alles open (lokaal).
+   variabele staat alles open (lokaal). Raden wordt afgeremd in
+   `lib/server/loginlimit.ts`: de Firewall-regel `inloggen` telt over alle
+   machines, een teller in het geheugen per machine. Tel altijd vóór het
+   wachtwoord wordt nagekeken, anders krijgt wie raadt het antwoord alsnog. Een
+   wachttijd per poging alleen remt op Vercel niets.
 
 ## Harde invarianten
 

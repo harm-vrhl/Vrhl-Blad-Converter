@@ -224,7 +224,7 @@ verzoeken, een verzoek duurt hooguit 800 seconden en is hooguit 4,5 MB. Daarom:
 - **Afgebroken? Verder waar het stopte.** Wat klaar was, wordt niet opnieuw
   betaald. Geldt voor een artikel-run en voor de analyse van een magazine.
 - **Een wachtwoord** (`APP_PASSWORD`) schermt de app af, want elke stap gebruikt
-  de sleutels van de redactie.
+  de sleutels van de redactie. Na tien pogingen in tien minuten moet je wachten.
 
 ## Modellen en kosten
 

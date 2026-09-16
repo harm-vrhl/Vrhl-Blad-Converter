@@ -1,8 +1,19 @@
 import { AUTH_COOKIE, AUTH_DAYS, authEnabled, checkPassword, issueToken } from '@/lib/auth';
+import { loginGate } from '@/lib/server/loginlimit';
 
 /** Het wachtwoord erin, een ondertekende cookie eruit. */
 export async function POST(request: Request) {
   if (!authEnabled()) return Response.json({ ok: true });
+
+  // Vóór het wachtwoord: wie te vaak raadt, hoort niet meer of het klopte.
+  const gate = await loginGate(request);
+  if (!gate.allowed) {
+    const minutes = Math.max(1, Math.ceil(gate.retryAfter / 60));
+    return Response.json(
+      { error: `Te veel pogingen. Probeer het over ${minutes} ${minutes === 1 ? 'minuut' : 'minuten'} opnieuw.` },
+      { status: 429, headers: { 'retry-after': String(gate.retryAfter) } }
+    );
+  }
 
   const body = (await request.json().catch(() => ({}))) as { password?: unknown };
   const password = typeof body.password === 'string' ? body.password : '';

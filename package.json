@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.3",
+    "@vercel/firewall": "^1.2.5",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.3.0",
     "idb": "^8.0.3",

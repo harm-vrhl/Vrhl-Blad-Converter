@@ -224,6 +224,14 @@ hoort er een slot op. Zet `APP_PASSWORD` en `AUTH_SECRET` (bv. `openssl rand -he
 zonder geldige cookie naar `/login`. Zonder `APP_PASSWORD` staat alles open, wat
 lokaal handig is.
 
+**Wachtwoord raden wordt afgeremd:** tien pogingen per tien minuten per IP, goed
+of fout. Op Vercel telt de Firewall dat over alle machines samen, maar alleen als
+de regel bestaat. Maak hem één keer aan in het dashboard: **Firewall > Configure >
+New Rule**, If `@vercel/firewall`, Rate limit ID `inloggen`, Fixed window **10
+minuten**, **10** verzoeken, sleutel **IP**, Then **Default (429)**, en daarna
+**Review Changes > Publish**. Ontbreekt de regel, dan remt elke machine alleen
+voor zichzelf en staat er bij elke poging een melding in de log.
+
 Op Vercel verder: alle sleutels uit `.env.example` als omgevingsvariabelen. Fluid
 compute staat standaard aan. `prompts.json` gaat via
 `outputFileTracingIncludes` in `next.config.mjs` mee in de functies.
@@ -365,6 +373,7 @@ app/api/run/        één korte stap per verzoek: ocr, frontmatter, images, page
 lib/llm/            Mistral OCR, en één chatclient voor OpenAI en Mistral
                     (fetch, geen SDK, streaming, houdt zich aan Mistrals limieten)
 middleware.ts       het wachtwoordslot (APP_PASSWORD)
+lib/server/loginlimit.ts  hoe vaak het wachtwoord geprobeerd mag worden
 ```
 
 ## Output
