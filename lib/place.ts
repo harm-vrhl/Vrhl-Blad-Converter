@@ -5,9 +5,9 @@ import type { StyleFragment } from './agents/styling';
 /**
  * Putting a mark where it belongs.
  *
- * Run 2 never sees run 1's text, so it quotes the page instead: the words as
+ * The styling run never sees the reading-order run's text, so it quotes the page instead: the words as
  * printed, and the words just before them. Neither side spells things quite the
- * same - the page breaks words over lines, run 1 mends them, and the two disagree
+ * same - the page breaks words over lines, the reading-order run mends them, and the two disagree
  * about hyphens and quotation marks - so they are matched on their bare letters
  * rather than character for character.
  *
@@ -19,7 +19,7 @@ import type { StyleFragment } from './agents/styling';
  *
  * Twee regels die daaruit volgen. De woorden ervoor kunnen over een alineagrens
  * lopen ("het rapport." sluit de ene alinea, "Hoe laat je" opent de volgende), en
- * run 1 zet elke alinea in een eigen blok; dan telt het laatste stuk van die
+ * de leesvolgorde-run zet elke alinea in een eigen blok; dan telt het laatste stuk van die
  * woorden, dat wel in de alinea staat. En een plek die een eerder fragment al
  * heeft, is geen kandidaat meer: dezelfde woorden die twee keer cursief staan zijn
  * twee markeringen, niet één die twee keer op dezelfde plek wordt gezet.
@@ -27,7 +27,7 @@ import type { StyleFragment } from './agents/styling';
 
 export interface Placed {
   patches: StylePatch[];
-  /** Fragments that are nowhere in run 1's page. Reported, never guessed at. */
+  /** Fragments that are nowhere in the reading-order run's page. Reported, never guessed at. */
   unplaced: StyleFragment[];
 }
 
@@ -92,7 +92,7 @@ interface Hit {
 const spot = (id: string, at: number) => `${id}:${at}`;
 
 /**
- * Where this fragment sits in run 1's page, quoted in run 1's own spelling.
+ * Where this fragment sits in the reading-order run's page, quoted in the reading-order run's own spelling.
  *
  * A block is searched as one stream of letters over the strings that can carry a
  * mark, in printed order. A box's own title is not one of them: it is the first
@@ -156,7 +156,7 @@ function fallback(blocks: Block[], fragment: StyleFragment, taken: Set<string>):
   // unplaced and said so, rather than set in bold in the wrong sentence.
   if (letters.length < ANYWHERE_MIN) return null;
 
-  // Failing that, near enough: run 1 sometimes tidies what the page prints - it
+  // Failing that, near enough: the reading-order run sometimes tidies what the page prints - it
   // wrote "The Pursuit of Happiness" where the film is spelt "Happyness" - and a
   // mark should not be lost over a letter.
   return search(blocks, letters, '', false, 'exact', taken) ?? nearly(blocks, letters, taken);
@@ -212,7 +212,7 @@ const FUZZY_MIN = 8;
 const FUZZY_SHARE = 0.12;
 
 /**
- * The closest thing to this fragment in run 1's text, when nothing matches it
+ * The closest thing to this fragment in the reading-order run's text, when nothing matches it
  * exactly. Anchored on the first letters so the whole page is not scanned
  * character by character, and held to a handful of edits so "Happyness" can find
  * "Happiness" without "kerndoelen" finding "eindtermen".
@@ -333,7 +333,7 @@ function onWords(stream: Stream, at: number, end: number): boolean {
   return opens && closes;
 }
 
-/** The fragment as run 1 spells it, cut out of the string it was found in. */
+/** The fragment as the reading-order run spells it, cut out of the string it was found in. */
 function quote(texts: string[], stream: Stream, at: number, length: number): string | null {
   const which = stream.text[at];
   const text = texts[which];
@@ -365,7 +365,7 @@ interface Stream {
    *
    * The PDF and the OCR do not always agree about a diacritic. The Frisian for
    * pastor is "dûmny" and that is what the file says; the OCR read the circumflex
-   * as a diaeresis and run 1 wrote "dümny". One character apart is no match at
+   * as a diaeresis and the reading-order run wrote "dümny". One character apart is no match at
    * all, and a five-letter word is too short for the tolerant pass. Stripped of
    * accents both are "dumny", so the mark survives an OCR that slipped.
    *

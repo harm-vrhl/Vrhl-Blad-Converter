@@ -68,7 +68,7 @@ export function useArticleRun({
   const [edited, setEdited] = useState<ArticleDocument | null>(null);
   const [text, setText] = useState<Record<number, string>>({});
   const [patches, setPatches] = useState<Record<number, Patch[]>>({});
-  // What run 2 read off the page. It lands while run 1 is still writing, which
+  // What the styling run read off the page. It lands while the reading-order run is still writing, which
   // is what lets the pane set the words as they arrive.
   const [fragments, setFragments] = useState<Record<number, StyleFragment[]>>({});
   const [results, setResults] = useState<Record<number, PageResult>>({});
@@ -308,7 +308,7 @@ export function useArticleRun({
     [results],
   );
 
-  // The images run 1 was allowed to place: everything the triage kept. Before
+  // The images the reading-order run was allowed to place: everything the triage kept. Before
   // the verdicts arrive nothing is rejected yet, which is also what the pipeline
   // does with a triage that failed.
   const approved = useMemo(() => {

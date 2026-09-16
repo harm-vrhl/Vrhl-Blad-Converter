@@ -7,7 +7,7 @@ import type { InlineStyle, StyleSpan } from '../types';
  *
  * Het Artikel-tabblad is de bewerkplek: je klikt in een alinea en typt. Wat de
  * browser daarna in de DOM heeft staan is tekst met `<b>`, `<i>` en `<u>` erin,
- * en dat moet weer `content` plus `styles` worden - dezelfde vorm die run 2
+ * en dat moet weer `content` plus `styles` worden - dezelfde vorm die de opmaak-run
  * aflevert, zodat het canonieke pakket niet hoeft te weten dat er iemand aan
  * heeft gezeten.
  *

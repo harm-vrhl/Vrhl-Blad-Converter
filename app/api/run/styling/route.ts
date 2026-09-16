@@ -11,8 +11,8 @@ interface Input {
 }
 
 /**
- * Run 2: de opmaak, van het beeld gelezen. Alleen voor een pagina waarvan de PDF
- * zelf niet zegt wat vet en cursief is. Een eigen verzoek, los van run 1, omdat
+ * De opmaak-run: de opmaak, van het beeld gelezen. Alleen voor een pagina waarvan de PDF
+ * zelf niet zegt wat vet en cursief is. Een eigen verzoek, los van de leesvolgorde-run, omdat
  * de render en de vier uitsneden samen tegen de 4,5 MB aan zitten.
  */
 export async function POST(request: Request) {

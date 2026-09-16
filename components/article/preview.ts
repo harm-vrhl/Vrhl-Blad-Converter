@@ -9,12 +9,12 @@ import type { ArticleDocument, ExtractedImage, Frontmatter, PageResult, Patch } 
 // The article as it stands right now, built by the same compileArticle the
 // pipeline finishes with. That is the point: the live preview cannot drift
 // from the result. The frontmatter appears the moment it is read, and a page
-// that is still being written is parsed here from run 1's own output, with
+// that is still being written is parsed here from the reading-order run's own output, with
 // the same parser the run uses - so the column fills block by block, and
 // the page's real result takes over the moment its two runs are done.
 //
 // The typography is laid on here too, with the same placer the run uses.
-// Run 2 no longer waits for run 1, so its marks are usually in before the text
+// The styling run no longer waits for the reading-order run, so its marks are usually in before the text
 // has finished arriving; placing them here is what lets the reader watch a
 // paragraph appear already set rather than watch it change afterwards.
 export function livePreview({
@@ -47,7 +47,7 @@ export function livePreview({
     const page = Number(key);
     if (results[page] || !raw.trim()) continue;
     const { blocks, continuity } = parsePage(page, raw, approved, boxed);
-    // The run's placed patches once it has sent them, and until then run 2's
+    // The run's placed patches once it has sent them, and until then the styling run's
     // own fragments, placed against the text that has arrived so far.
     const marks = patches[page]?.length
       ? patches[page]

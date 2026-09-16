@@ -179,7 +179,7 @@ function herkomst(pages: PageResult[]): string {
 }
 
 /**
- * Every mark run 2 reported, fragment by fragment. A count alone cannot be read
+ * Every mark the styling run reported, fragment by fragment. A count alone cannot be read
  * against the page; this can, which is the point of a check.
  */
 function tally(patches: Patch[]): string {

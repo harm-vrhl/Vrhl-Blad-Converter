@@ -413,7 +413,7 @@ function linked(text: string): ReactNode {
   );
 }
 
-/** A frontmatter field with the italics run 1 found in it. */
+/** A frontmatter field with the italics the reading-order run found in it. */
 function Field({
   fm,
   name,

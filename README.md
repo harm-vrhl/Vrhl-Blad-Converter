@@ -26,15 +26,15 @@ het blad staan.
      +-----------------------+-----------------------+
   pagina 1                pagina 2                pagina 3   <- parallel
      |                       |                       |
-  AI run 1: schrijft de pagina uit in leesvolgorde,
+  leesvolgorde: schrijft de pagina uit in leesvolgorde,
   inserts, quotes, streamers en images op hun plek,
   streamt live naar de interface
      |
   woordindex-check: staan er woorden in die de pagina niet heeft?
-  te veel? dan krijgt run 1 een tweede poging
+  te veel? dan een tweede poging, mét de misgeschreven woorden erbij
      |
-  AI run 2: styling. Zoekt bold, italic, underline en strikethrough
-  en vervangt die woorden in de output van run 1
+  opmaak: zoekt bold, italic, underline en strikethrough en legt die
+  over de leesvolgorde heen (start tegelijk, wacht niet)
      |
      +-----------------------+-----------------------+
                              |
@@ -50,9 +50,9 @@ Alleen voor pagina's zonder tekstlaag (een scan, een advertentie die als beeld i
 geëxporteerd) kijkt er alsnog een run naar de page image. Zie
 [TYPOGRAFIE.md](TYPOGRAFIE.md) voor het waarom en de vallen.
 
-## De regels van run 1
+## De regels van de leesvolgorde-run
 
-Run 1 is de enige run die tekst schrijft. Alles wat hij moet weten staat in
+De leesvolgorde-run is de enige run die tekst schrijft. Alles wat hij moet weten staat in
 `prompts.json`, samengevat:
 
 - Bepaal waar de lezer begint. Daar begint de output.
@@ -107,19 +107,20 @@ Het beeld zelf zegt niet genoeg. Een foto in een advertentiebalk onderaan de
 pagina ziet er precies zo uit als een foto in het verhaal erboven; wat hem verraadt
 is waar hij staat, naast een logo, een slogan en een webadres. Daarom zoekt het
 model elk beeld op in de pagina en beoordeelt het daar: een beeld in een
-advertentie, een banner of een ander artikel op dezelfde pagina gaat eruit. Run 1
-heeft dezelfde regel als vangnet: een beeld dat zichtbaar in een advertentie
+advertentie, een banner of een ander artikel op dezelfde pagina gaat eruit. De
+leesvolgorde-run heeft dezelfde regel als vangnet: een beeld dat zichtbaar in een advertentie
 staat, plaatst hij niet.
 
-Alleen wat beide stappen overleeft krijgt run 1 te zien, en die moet ze allemaal
+Alleen wat beide stappen overleeft krijgt de leesvolgorde-run te zien, en die
+moet ze allemaal
 een plek geven.
 
 **Wie staat erop.** Bij het rippen wordt uit de tekstlaag van de PDF gehaald welke
 tekst direct onder, boven of naast elk beeld staat (`nearby`, `lib/nearby.ts`):
 de naam onder een portret, een bijschrift, of het woord ADVERTENTIE. Die tekst
-gaat mee naar de beeldbeoordeling en naar run 1. Op een pagina met zes portretten
-op een rij hoeft niemand dan te raden welk gezicht bij welke naam hoort: run 1
-zet elk portret bij de persoon die de tekstlaag ernaast noemt. Een portret naast
+gaat mee naar de beeldbeoordeling en naar de leesvolgorde-run. Op een pagina met
+zes portretten op een rij hoeft niemand dan te raden welk gezicht bij welke naam
+hoort: die run zet elk portret bij de persoon die de tekstlaag ernaast noemt. Een portret naast
 een naam in een rij mensen (personalia, benoemingen) is altijd inhoud, hoe klein
 ook.
 
@@ -150,19 +151,19 @@ uploads; een oude job moet opnieuw worden geupload.
 ## De woordindex
 
 Mistral bepaalt welke woorden bestaan. Per pagina bouwen we daaruit een
-genormaliseerde woordindex, en daar wordt run 1 tegen afgerekend:
+genormaliseerde woordindex, en daar wordt de leesvolgorde-run tegen afgerekend:
 
 - een woord dat **niet in de index staat** is verzonnen;
 - een woord dat **vaker wordt gebruikt dan de pagina het bevat** wijst op
   gedupliceerde tekst. Daar gaat het mis;
 - de **dekking** is het percentage uitvoerwoorden dat de OCR dekt.
 
-Staan er te veel onbekende woorden in, dan krijgt run 1 één herkansing. Niet de
-hele pagina, niet het hele artikel. Zie het tabblad *Controle*.
+Staan er te veel onbekende woorden in, dan volgt één herkansing van die ene
+pagina. Niet het hele artikel. Zie het tabblad *Controle*.
 
 ## Doorlopende tekst
 
-Zegt run 1 dat een pagina midden in het artikel begint, dan wordt de eerste
+Zegt de leesvolgorde-run dat een pagina midden in het artikel begint, dan wordt de eerste
 alinea zonder regelafbreking direct aan de laatste alinea van de vorige pagina
 geplakt, ook als daar nog een quote of een afbeelding onder hing.
 
@@ -346,12 +347,12 @@ niet in het bestand.
 app/                UI en API-routes
 components/         Workflow, ArticleView, MagazineView, Checks
 prompts.json        alle prompts, buiten de code, om te tweaken
-lib/agents/         frontmaster, imagetriage, structure (run 1), styling (run 2)
+lib/agents/         frontmaster, imagetriage, structure (leesvolgorde), styling (opmaak)
 lib/client/images.ts  ript de bitmaps uit de PDF met pdf.js
 lib/imagefilter.ts  de regels die strepen en ornamenten meteen wegzetten
 lib/prompts.ts      laadt prompts.json en herlaadt bij wijziging
-lib/pagemarkup.ts   parst de markers van run 1 naar blokken
-lib/patch.ts        legt de styling van run 2 over run 1 heen
+lib/pagemarkup.ts   parst de markers van de leesvolgorde-run naar blokken
+lib/patch.ts        legt de opmaak over de leesvolgorde heen
 lib/wordindex.ts    de woordindex en zijn controle
 lib/compile.ts      pagina's naar één artikel
 lib/client/run.ts   de regie van een run, in de browser: wat wanneer, wat parallel

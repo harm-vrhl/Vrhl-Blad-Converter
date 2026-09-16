@@ -33,11 +33,11 @@ export function strArray(description: string): JsonSchema {
   return { type: 'array', description, items: { type: 'string' } };
 }
 
-/** Run 1's page, addressable by block id, what run 2 hangs its patches on. */
+/** The reading-order run's page, addressable by block id, what the styling run hangs its patches on. */
 export function blockList(blocks: Block[]): string {
   return blocks
     .map((b) => {
-      // A box is one target, its own contents included: run 2 names the box and
+      // A box is one target, its own contents included: the styling run names the box and
       // the fragment, and the applier finds which line of it the fragment is in.
       if (b.type === 'insert') {
         const inside = (b.children ?? []).map((child) => bodyOf(child)).filter(Boolean).join('\n');

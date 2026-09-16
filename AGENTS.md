@@ -48,15 +48,18 @@ Convert
                              (per pagina met beelden, met de page image)
   |
   per pagina, parallel:
-     AI run 1  schrijft de pagina uit in leesvolgorde,
-               inserts, quotes, streamers en images op hun plek
+     leesvolgorde  schrijft de pagina uit in leesvolgorde,
+                   inserts, quotes, streamers en images op hun plek
      woordindex-check -> te veel onbekende woorden? één herkansing
-     AI run 2  styling: bold/italic/underline/strikethrough
+     opmaak        bold/italic/underline/strikethrough
+                   (start tegelijk met de leesvolgorde-run)
   |
   compileren tot één artikel
 ```
 
-**Twee AI-runs per pagina.** Niet meer. Er is een versie geweest met zeven
+**Twee AI-runs per pagina: leesvolgorde en opmaak.** Niet meer. Ze heetten
+"run 1" en "run 2"; die nummers zijn eruit, want ze suggereerden een volgorde die
+er niet meer is. Er is een versie geweest met zeven
 gespecialiseerde runs per pagina; die was duurder (37 runs / 161k tokens tegen
 14 / 69k op hetzelfde artikel van zes pagina's) zonder beter te zijn. Voeg geen
 run per pagina toe zonder een aantoonbaar probleem dat je er alleen zo mee
@@ -107,7 +110,8 @@ wordt Personalia een artikel per persoon.
 reist als `Job.opening` mee naar de artikel-run. De frontmatter-agent begint met
 zoveel pagina's, en zonder die kennis met twee (`OPENING_DEFAULT` in
 `lib/client/run/opening.ts`). Begin nooit weer met één pagina en stop bij de eerste kop: dan
-mist hij een intro op de pagina ernaast en schrijft run 1 die in de body.
+mist hij een intro op de pagina ernaast en schrijft de leesvolgorde-run die in
+de body.
 
 Daarna knipt de browser per gekozen artikel de hele pagina's uit het magazine
 (`cutArticle` in `lib/client/magazine.ts`) en gaat die PDF door de gewone upload
@@ -161,10 +165,14 @@ Daaruit volgen vaste regels:
 
 Breek deze niet. Ze staan er allemaal omdat het een keer misging.
 
-1. **Run 2 wacht op run 1.** Binnen een pagina is de volgorde strikt. Pagina's
-   onderling draaien wel parallel, en dat kan alleen omdat een pagina niets van
-   de uitkomst van zijn buren nodig heeft; de context die hij van ze krijgt komt
-   uit de OCR, niet uit hun output.
+1. **Een pagina heeft niets van zijn buren nodig.** Daarom mogen pagina's
+   parallel; de context die een pagina van zijn buren krijgt komt uit de OCR,
+   niet uit hun output. Binnen een pagina starten de leesvolgorde-run en de
+   opmaak-run tegelijk: de opmaak-run citeert de pagina in plaats van naar
+   blok-ids te wijzen, dus hij heeft de leesvolgorde niet nodig. `placeFragments`
+   is de enige plek waar de twee elkaar tegenkomen. Laat de opmaak-run nooit
+   naar blok-ids van de leesvolgorde-run vragen: dan moet hij weer wachten en
+   ziet de gebruiker de opmaak pas na de tekst.
 2. **Deterministische stappen blijven deterministisch.** Parsen, patchen,
    opschonen en compileren zijn regels, geen model. Een stap die tekstinhoud kan
    veranderen mag geen model zijn.
@@ -177,8 +185,8 @@ Breek deze niet. Ze staan er allemaal omdat het een keer misging.
    begint de volgende met een kleine letter, dan is het één zin. Een tussenkop is
    de harde grens.
 5. **Frontmatter komt niet terug in de body.** Chapeau, titel, ondertitel,
-   creditregel en intro horen bovenaan, niet in de lopende tekst. Zowel run 1
-   (prompt) als de compiler (regel) bewaken dat.
+   creditregel en intro horen bovenaan, niet in de lopende tekst. Zowel de
+   leesvolgorde-run (prompt) als de compiler (regel) bewaken dat.
 6. **Eén mislukte run legt de job niet om.** Een pagina die faalt levert een lege
    pagina plus een waarschuwing; de rest compileert door. Idem per run binnen een
    pagina.
@@ -198,19 +206,19 @@ lib/prompts.ts        laadt prompts.json, herlaadt bij wijziging,
 lib/client/run.ts     de orkestratie in de browser: wat draait wanneer, wat parallel
 lib/client/run/       de fases van één run, op volgorde: context (tempo, bon, once),
                       words (OCR), opening (frontmatter en beeld, kopcontrole),
-                      page (run 1 en 2 per pagina)
+                      page (leesvolgorde en opmaak per pagina)
 lib/client/db.ts      IndexedDB: jobs, magazines, bestanden, tussenresultaten
 lib/client/post.ts    verzoeken bouwen (runForm, 4,4 MB-grens) en SSE lezen
 lib/client/limiter.ts het tempo: maximum tegelijk, Mistral 1 start per seconde
 lib/client/exports.ts pakket-ZIP in de browser, Sanity in stappen
 lib/server/run.ts     wat elke route deelt: verzoek lezen, kosten, streamen
-app/api/run/          check, ocr, frontmatter, images, page (run 1), styling (run 2)
+app/api/run/          check, ocr, frontmatter, images, page (leesvolgorde), styling (opmaak)
 app/api/magazine/     scan (per pagina), boundary (per overgang)
 app/api/sanity/       asset (één beeld), push (pakket als concept)
 lib/auth.ts, middleware.ts  het wachtwoordslot
-lib/agents/           frontmaster, imagetriage, structure (run 1), styling (run 2)
-lib/pagemarkup.ts     parst de markers van run 1 naar blokken
-lib/patch.ts          legt de styling van run 2 over run 1 heen
+lib/agents/           frontmaster, imagetriage, structure (leesvolgorde), styling (opmaak)
+lib/pagemarkup.ts     parst de markers van de leesvolgorde-run naar blokken
+lib/patch.ts          legt de opmaak over de leesvolgorde heen
 lib/wordindex.ts      de woordindex en zijn controle
 lib/compile.ts        pagina's naar één artikel: naden, quotes, ruis
 lib/canonical.ts      het artikel als Vrhl Content Package 1.0. De enige plek
@@ -273,9 +281,9 @@ run opnieuw ingelezen zodra het gewijzigd is; een herstart is niet nodig.
 - `effort` is `null` (neem `.env.local`) of `minimal|low|medium|high`.
 
 
-## Het formaat van run 1
+## Het formaat van de leesvolgorde-run
 
-Run 1 schrijft platte tekst met een handvol markers. Platte tekst omdat het live
+De leesvolgorde-run schrijft platte tekst met een handvol markers. Platte tekst omdat het live
 moet kunnen streamen; markers omdat het daarna deterministisch geparst moet
 worden.
 
@@ -315,7 +323,7 @@ Een volledige run kost geld: ongeveer 14 runs en 69k tokens voor een artikel van
 zes pagina's. Doe dat alleen als het nodig is.
 
 **Voor deterministische wijzigingen** (compile, patch, parse, cleanup): draai
-niet opnieuw. De opgeslagen output van run 1 en 2 staat in IndexedDB onder
+niet opnieuw. De opgeslagen output van beide runs staat in IndexedDB onder
 `<job-id>/pages.json` (store `data`), en voor oude jobs nog in
 `.data/jobs/<id>/pages.json`. Zet tijdelijk een route neer die `compileArticle` op dat bestand
 loslaat, controleer, en haal de route weer weg. Zo zijn de naden en de
@@ -381,7 +389,8 @@ gecompileerde artikel:
   model/proces en herhaalt de aanroep één keer.
 - **Mistral telt thinking mee in `max_tokens`.** High effort schrijft eerst een
   thinking-trace; die gaat van hetzelfde budget af als de pagina. 16000 was
-  genoeg voor de tekst en niet voor het denken, dus run 1 stierf midden in een
+  genoeg voor de tekst en niet voor het denken, dus de leesvolgorde-run stierf
+midden in een
   zin (`finish_reason: length`). De Mistral-standaard is daarom 48000, en bij
   afkappen verdubbelt de client het budget één keer (tot 65536) in plaats van
   de pagina om te leggen.

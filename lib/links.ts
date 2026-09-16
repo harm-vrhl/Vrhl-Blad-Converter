@@ -6,7 +6,7 @@ export interface Piece {
 
 /**
  * A printed web address is a pattern, not a judgement, so no model is asked
- * about it: the text run 1 copied off the page is scanned here and the preview
+ * about it: the text the reading-order run copied off the page is scanned here and the preview
  * and the MDX writer both read the result, so a link is a link in both.
  *
  * The visible text stays exactly as printed - "www.vrhl-blad.nl" is not

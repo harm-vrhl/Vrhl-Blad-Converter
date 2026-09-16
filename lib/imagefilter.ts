@@ -5,16 +5,19 @@ const NEVER_CONTENT: ImageKind[] = ['logo', 'ornament', 'rule'];
 /**
  * Pictures the triage set aside as an advert or another piece's, that may still
  * stand inside a box of this article. The triage sees a tinted panel with a web
- * address and calls it an advert; run 1 decides whether that panel is part of the
+ * address and calls it an advert; the reading-order run decides whether that panel is part of the
  * article. When it puts the box in, the pictures printed inside it belong there
- * too, so run 1 gets them - to be placed inside a box and nowhere else.
+ * too, so the reading-order run gets them - to be placed inside a box and nowhere else.
  */
 export function boxOnly(images: ExtractedImage[], verdicts: ImageVerdict[]): ExtractedImage[] {
   const setAside = new Set(verdicts.filter((v) => !v.keep && !NEVER_CONTENT.includes(v.kind)).map((v) => v.id));
   return images.filter((image) => setAside.has(image.id));
 }
 
-/** The verdicts, with every set-aside picture that run 1 placed inside a box turned back into a keep. */
+/**
+ * The verdicts, with every set-aside picture that the reading-order run placed
+ * inside a box turned back into a keep.
+ */
 export function rescueBoxed(verdicts: ImageVerdict[], pages: Array<{ blocks: Block[] }>): { verdicts: ImageVerdict[]; rescued: string[] } {
   const boxed = new Set(
     pages.flatMap((p) =>

@@ -26,7 +26,7 @@ export function cleanupText(input: string): string {
   // words. An italic passage is one wrap around the lines it was broken on;
   // those markers have to come off after the lines are one paragraph again, or
   // the opening and closing asterisks survive as printed characters. The words
-  // stay and the markers go: typography is run 2's to decide, off the page image.
+  // stay and the markers go: typography is the styling run's to decide, off the page image.
   // The content may not begin or end with a space, so "2 * 3 * 4" keeps its
   // asterisks. The edges of the content may not be the marker itself either, or
   // a closing "**" leaves one asterisk behind.

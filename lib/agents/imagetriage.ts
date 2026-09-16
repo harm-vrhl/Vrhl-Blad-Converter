@@ -89,7 +89,7 @@ export async function triageImages(
       const found = byId.get(img.id);
       return {
         id: img.id,
-        keep: found ? Boolean(found.keep) : true, // unjudged stays in; run 1 still has to place it
+        keep: found ? Boolean(found.keep) : true, // unjudged stays in; the reading-order run still has to place it
         kind: found && KINDS.includes(found.kind) ? found.kind : 'other',
         reason: found?.reason ?? 'niet beoordeeld'
       };

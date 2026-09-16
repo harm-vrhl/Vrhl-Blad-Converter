@@ -4,11 +4,11 @@ import { promptFor } from '../prompts';
 import { AgentCtx, obj, pageImageUrl, str, strArray } from './common';
 
 /**
- * AI run 2: the typography, in one look at the page and nothing else.
+ * The styling run: the typography, in one look at the page and nothing else.
  *
- * It is deliberately told nothing about what run 1 is writing. Two things follow
+ * It is deliberately told nothing about what the reading-order run is writing. Two things follow
  * from that, and both are the point. It can start the moment the page image
- * exists, alongside run 1 rather than behind it, so the reader watching the text
+ * exists, alongside the reading-order run rather than behind it, so the reader watching the text
  * appear sees it appear already set. And it cannot name a block, which means it
  * has to quote the page instead - the words as printed, and the words just before
  * them. Those two together are what the placer needs to put the mark on the right

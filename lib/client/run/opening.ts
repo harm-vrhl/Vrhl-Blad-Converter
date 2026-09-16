@@ -19,7 +19,7 @@ const OPENING_DEFAULT = 2;
 
 /**
  * 2. Frontmatter and image triage. Neither needs the other's answer, so they
- *    start together. Pages still wait for both: run 1 needs the approved ids and
+ *    start together. Pages still wait for both: the reading-order run needs the approved ids and
  *    the frontmatter as context.
  */
 export async function* readOpening(
@@ -112,7 +112,7 @@ export async function* readOpening(
       );
       verdicts = judged.flatMap((j) => j.verdicts);
     } catch (err) {
-      // Without a verdict every candidate stays in; run 1 still decides placement.
+      // Without a verdict every candidate stays in; the reading-order run still decides placement.
       opening.push({
         type: 'status',
         run: 'beeldbeoordeling',

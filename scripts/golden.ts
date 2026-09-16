@@ -70,7 +70,7 @@ function article(dir: string): Outputs | null {
   }
 
   // What the article screen derives while a run streams in: the steps in the
-  // sidebar and the live preview. The status lines and run 1's text are made up
+  // sidebar and the live preview. The status lines and the reading-order run's text are made up
   // here, the same for every job, so the only thing that varies is the job.
   const job = read<StoredJob>(dir, 'job.json');
   const boxed = boxOnly(images, verdicts);
@@ -107,8 +107,8 @@ function STATUS(pages: number[]): StatusLine[] {
     { run: 'beeldbeoordeling', state: 'fail', detail: 'mislukt' }
   ];
   pages.forEach((page, i) => {
-    lines.push({ run: 'run 1 leesvolgorde', page, state: 'start' });
-    if (i % 3 === 1) lines.push({ run: 'run 2 opmaak', page, state: 'ok' });
+    lines.push({ run: 'leesvolgorde', page, state: 'start' });
+    if (i % 3 === 1) lines.push({ run: 'opmaak', page, state: 'ok' });
     if (i % 3 === 2) lines.push({ run: 'opmaak uit de PDF', page, state: 'fail', detail: 'kapot' });
   });
   return lines;

@@ -15,7 +15,7 @@ const INSERT_CLOSE = /^\[\/insert\]$/i;
 const FLOW = /^\[continues-(from-previous|on-next)\s*:\s*([^\]]*)\]$/i;
 
 /**
- * Run 1 writes the page as plain text with a handful of markers. Plain text
+ * The reading-order run writes the page as plain text with a handful of markers. Plain text
  * streams to the interface as it is written, and the markers are few enough that
  * the model rarely gets them wrong, anything it does get wrong falls through as
  * an ordinary paragraph rather than being lost.
@@ -47,7 +47,7 @@ export function parsePage(
     if (!box) return;
     const children = box.inside.done();
     const title = cleanupText(box.title);
-    // Run 1 names the box in the marker. Where it wrote that same heading inside
+    // The reading-order run names the box in the marker. Where it wrote that same heading inside
     // the box as well, the box would carry it twice - and the word index would
     // see a word the page prints once being used twice.
     const first = children[0];
@@ -97,7 +97,7 @@ export function parsePage(
 }
 
 interface Reader {
-  /** Feed one line of run 1's output. */
+  /** Feed one line of the reading-order run's output. */
   line: (trimmed: string) => void;
   /** Close whatever is still open, without ending the run. */
   flush: () => void;
@@ -106,7 +106,7 @@ interface Reader {
   done: () => PageBlock[];
 }
 
-/** Reads run 1's markers into blocks. One page, or one box on it. */
+/** Reads the reading-order run's markers into blocks. One page, or one box on it. */
 function reader(available: ExtractedImage[]): Reader {
   const blocks: PageBlock[] = [];
   let paragraph: string[] = [];
@@ -235,7 +235,7 @@ function imageBlock(body: string, available: ExtractedImage[]): PageBlock {
   };
 }
 
-/** Everything run 1 actually put on the page, with the markers stripped off. */
+/** Everything the reading-order run actually put on the page, with the markers stripped off. */
 export function textOf(blocks: PageBlock[]): string {
   return blocks
     .flatMap((b) => [b.text, b.caption ?? '', b.credit ?? '', textOf(b.children ?? [])])

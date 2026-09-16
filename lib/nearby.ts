@@ -5,7 +5,7 @@
  * het is, maar de naam eronder. Een model dat de pagina bekijkt en een lijst
  * beelden met coördinaten krijgt, moet die koppeling raden, en raadt soms mis.
  * De tekstlaag van de PDF weet het gewoon: welke regels er onder, boven of naast
- * het beeld staan. Dat wordt hier opgemeten, zodat de beeldbeoordeling en run 1
+ * het beeld staan. Dat wordt hier opgemeten, zodat de beeldbeoordeling en de leesvolgorde-run
  * het beeld bij de juiste naam of het juiste bijschrift houden.
  *
  * Alle maten in PDF-punten, met de oorsprong linksboven, zoals `placed`.

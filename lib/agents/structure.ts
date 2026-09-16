@@ -11,7 +11,7 @@ export interface StructureResult {
 }
 
 /**
- * AI run 1. The only run that writes. It reads the page, decides where the
+ * The reading-order run. The only run that writes. It reads the page, decides where the
  * reader starts, and writes the whole page out in that order, inserts, quotes,
  * streamers and images in their place. Nothing else happens on this page until
  * it is finished.

@@ -75,7 +75,7 @@ vision-run levert, zodat alles erna — de plaatser, de live-voorvertoning, het
 Controle-venster — ongewijzigd blijft werken.
 
 Wat eruit komt is het fragment zoals de pagina het drukt (`text`) plus de twee of
-drie woorden ervóór (`before`). Die context is nodig omdat run 1 een eigen tekst
+drie woorden ervóór (`before`). Die context is nodig omdat de leesvolgorde-run een eigen tekst
 schrijft: het fragment moet daarin worden teruggevonden, en `before` bepaalt wélk
 vóórkomen bedoeld wordt.
 
@@ -184,7 +184,8 @@ context van één woord (`"In "`) alles weg.
 Anders wordt een fragment verankerd aan een kop die in een ander blok staat en
 raakt het onplaatsbaar.
 
-**Een alineagrens wist de context níet.** De PDF weet niet waar run 1 een alinea
+**Een alineagrens wist de context níet.** De PDF weet niet waar de
+leesvolgorde-run een alinea
 begint, dus `before` kan over twee alinea's lopen: `"het rapport. Hoe laat je"`,
 waarvan "het rapport." de vorige alinea sluit. Vindt de plaatser de hele context
 niet, dan probeert hij het laatste stuk ervan, woord voor woord korter (nooit

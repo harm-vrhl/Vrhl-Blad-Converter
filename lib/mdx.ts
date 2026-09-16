@@ -152,7 +152,7 @@ function block(blok: Blok, assets: Map<string, Asset>): string {
  * Een alinea die begint zoals markdown een lijst, een kop of een quote begint.
  *
  * Het blad drukt regels als "- Virolog Marc Van Ranst over taal in
- * crisissituaties" gewoon als lopende tekst, en run 1 schrijft ze ook als
+ * crisissituaties" gewoon als lopende tekst, en de leesvolgorde-run schrijft ze ook als
  * alinea. Zonder ontsnapping leest die alinea straks terug als een lijst, en dan
  * is er een blok bij gekomen dat de pagina nooit had. Alleen aan het begin van
  * een regel, want alleen daar betekent zo'n teken iets.

@@ -4,10 +4,11 @@ import type { TypographySource } from './client/typography';
 
 // ─── The model ───────────────────────────────────────────────────────────────
 // Per page, two AI runs and nothing more:
-//   run 1  writes the page out in reading order, inserts, quotes and images
-//          included, each in its place;
-//   run 2  looks only at typography and replaces the styled words in run 1's
+//   reading order  writes the page out in reading order, inserts, quotes and
+//          images included, each in its place;
+//   styling  looks only at typography and marks the styled words in that
 //          output.
+// They carry no numbers on purpose: neither waits for the other.
 // Mistral's word index is the check on both.
 
 /**
@@ -24,7 +25,7 @@ export type BlockType = 'paragraph' | 'subheading' | 'quote' | 'streamer' | 'ima
  */
 export type ImageSize = 'small' | 'normal' | 'large' | 'xlarge';
 
-/** One addressable unit of a page, as written by run 1. */
+/** One addressable unit of a page, as written by the reading-order run. */
 export interface Block {
   id: string; // p3-01
   page: number;
@@ -45,7 +46,7 @@ export interface Block {
   placement?: 'inline' | 'end';
   caption?: string | null;
   credit?: string | null;
-  /** Id of the bitmap ripped from the PDF, when run 1 named one. */
+  /** Id of the bitmap ripped from the PDF, when the reading-order run named one. */
   ref?: string | null;
   file?: string | null;
   size?: ImageSize;
@@ -55,13 +56,13 @@ export interface Block {
 }
 
 /**
- * A block before it is addressable. Run 1 writes the page and the boxes on it
+ * A block before it is addressable. The reading-order run writes the page and the boxes on it
  * with the same markers, so both are read into the same shape; only the page's
- * own blocks get an id, because that is what run 2 hangs its patches on.
+ * own blocks get an id, because that is what the styling run hangs its patches on.
  */
 export type PageBlock = Omit<Block, 'id' | 'page'>;
 
-/** Run 2's only output: a fragment of a block that carries inline styling. */
+/** The styling run's only output: a fragment of a block that carries inline styling. */
 export interface StylePatch {
   op: 'style';
   target: string;
@@ -354,9 +355,10 @@ export type RunEvent =
   | { type: 'delta'; page: number; text: string }
   | { type: 'patch'; page: number; patch: Patch }
   /**
-   * What run 2 read off the page, sent the moment it lands. It arrives while run
-   * 1's text is still streaming, which is the point: the interface can set the
-   * words as they appear instead of restyling the page once it is done.
+   * What the styling run read off the page, sent the moment it lands. It arrives
+   * while the reading-order text is still streaming, which is the point: the
+   * interface can set the words as they appear instead of restyling the page
+   * once it is done.
    */
   | { type: 'styling'; page: number; fragments: StyleFragment[] }
   | { type: 'page'; page: number; result: PageResult }

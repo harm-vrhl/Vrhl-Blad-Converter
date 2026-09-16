@@ -29,7 +29,7 @@ interface Accepted {
 }
 
 /**
- * Run 2's patches meet run 1's page here, and nowhere else. A style patch is
+ * The styling run's patches meet the reading-order run's page here, and nowhere else. A style patch is
  * applied only when the fragment really occurs in the block it names; anything
  * else is refused and shown as refused, rather than quietly changing the text.
  */
@@ -240,7 +240,7 @@ function build(block: PageBlock, placed: StyleSpan[][], id: string, cursor: { ne
         size: block.size ?? 'normal'
       };
     case 'insert':
-      // De kop die run 1 in de marker zet, wordt het eerste blok van het kader.
+      // De kop die de leesvolgorde-run in de marker zet, wordt het eerste blok van het kader.
       return {
         type: 'insert',
         kind: 'box',

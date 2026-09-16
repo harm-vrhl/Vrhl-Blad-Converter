@@ -25,8 +25,9 @@ import type { RunContext } from './context';
 const TAIL = 300;
 
 /**
- * 3 & 4. Two runs per page. Pages run side by side as far as the lanes allow;
- *    inside a page run 2 starts with run 1 and is placed once both are in.
+ * 3 & 4. Two runs per page: reading order and styling. Pages run side by side as
+ *    far as the lanes allow; inside a page the styling run starts alongside the
+ *    reading-order run and is placed once both are in.
  */
 export async function* runPages(
   ctx: RunContext,
@@ -80,9 +81,9 @@ interface PageJob {
 }
 
 /**
- * One page, two runs, side by side. Run 2 quotes the page instead of naming
- * run 1's blocks, so it needs nothing from run 1 and starts with it; what it
- * quotes is placed once both are in.
+ * One page, two runs, side by side. The styling run quotes the page instead of
+ * naming the reading-order run's blocks, so it needs nothing from it and starts
+ * with it; what it quotes is placed once both are in.
  */
 async function processPage(ctx: RunContext, context: string, page: PageJob): Promise<PageResult> {
   const { id, provider, chat, add, files } = ctx;
@@ -120,7 +121,7 @@ async function processPage(ctx: RunContext, context: string, page: PageJob): Pro
     }
     emit({
       type: 'status',
-      run: 'run 2 opmaak',
+      run: 'opmaak',
       state: 'start',
       page: n,
       detail:
@@ -140,20 +141,20 @@ async function processPage(ctx: RunContext, context: string, page: PageJob): Pro
       .then(({ fragments, usage: spent }) => {
         usage.push(spent);
         emit({ type: 'styling', page: n, fragments });
-        emit({ type: 'status', run: 'run 2 opmaak', state: 'ok', page: n, detail: `${fragments.length} fragment(en)` });
+        emit({ type: 'status', run: 'opmaak', state: 'ok', page: n, detail: `${fragments.length} fragment(en)` });
         return fragments;
       })
       .catch((err: unknown) => {
         // The page keeps its text; it just comes out unmarked.
         const message = errorMessage(err);
-        warnings.push(`run 2 opmaak: ${message}`);
-        emit({ type: 'status', run: 'run 2 opmaak', state: 'fail', page: n, detail: message });
+        warnings.push(`de opmaak-run mislukte: ${message}`);
+        emit({ type: 'status', run: 'opmaak', state: 'fail', page: n, detail: message });
         return [];
       });
   }
 
-  // AI run 1, reading order, with inserts, quotes and images in their place.
-  emit({ type: 'status', run: 'run 1 leesvolgorde', state: 'start', page: n });
+  // The reading-order run: the page written out, with inserts, quotes and images in their place.
+  emit({ type: 'status', run: 'leesvolgorde', state: 'start', page: n });
   let structure: { blocks: Block[]; continuity: Continuity; check: IndexCheck; usage: RunUsage } | null = null;
   await chat(async () =>
     postStream<RunEvent | { type: 'structure'; blocks: Block[]; continuity: Continuity; check: IndexCheck; usage: RunUsage }>(
@@ -169,7 +170,7 @@ async function processPage(ctx: RunContext, context: string, page: PageJob): Pro
       }
     )
   );
-  if (!structure) throw new Error('run 1 kwam niet terug');
+  if (!structure) throw new Error('de leesvolgorde-run kwam niet terug');
   const { blocks, continuity, check, usage: written } = structure as {
     blocks: Block[];
     continuity: Continuity;
@@ -179,7 +180,7 @@ async function processPage(ctx: RunContext, context: string, page: PageJob): Pro
   usage.push(written);
   emit({
     type: 'status',
-    run: 'run 1 leesvolgorde',
+    run: 'leesvolgorde',
     state: 'ok',
     page: n,
     detail: `${tally(blocks)}, ${Math.round(check.score * 100)}% woorddekking`
@@ -189,7 +190,9 @@ async function processPage(ctx: RunContext, context: string, page: PageJob): Pro
   const placed = placeFragments(blocks, await styling);
   for (const patch of placed.patches) emit({ type: 'patch', page: n, patch });
   for (const missed of placed.unplaced) {
-    warnings.push(`opmaak: "${clip(missed.text)}" (${missed.style.join('+')}) staat nergens in de pagina zoals run 1 hem schreef`);
+    warnings.push(
+      `opmaak: "${clip(missed.text)}" (${missed.style.join('+')}) staat nergens in de pagina zoals de leesvolgorde-run hem schreef`
+    );
   }
   for (const stray of strayLetters(textOfBlocks(blocks))) {
     warnings.push(`losse letter, mogelijk een OCR-misser: "${stray}"`);
@@ -251,7 +254,7 @@ function clip(text: string): string {
   return line.length > 40 ? `${line.slice(0, 40)}…` : line;
 }
 
-/** The context run 1 carries, so it does not repeat the frontmatter as body text. */
+/** The context the reading-order run carries, so it does not repeat the frontmatter as body text. */
 export function describe(fm: Frontmatter): string {
   return [
     fm.chapeau ? `Chapeau: ${fm.chapeau}` : '',

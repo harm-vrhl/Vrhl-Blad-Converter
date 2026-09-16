@@ -6,9 +6,9 @@ type Step = WorkflowStep;
 
 /** What each run is called while it is still going. */
 const BUSY: Record<string, string> = {
-  "run 1 leesvolgorde": "tekst uitschrijven…",
+  "leesvolgorde": "tekst uitschrijven…",
   "opmaak uit de PDF": "opmaak uit de PDF…",
-  "run 2 opmaak": "opmaak van het beeld lezen…",
+  "opmaak": "opmaak van het beeld lezen…",
   pagina: "bezig…",
 };
 
@@ -23,8 +23,8 @@ export interface StatusLine {
  * The run, as a handful of steps rather than as its log.
  *
  * The pipeline emits a line for every start and every finish of every run on
- * every page: for a six-page article that is forty entries of "run 1
- * leesvolgorde · p3". Useful while building it, unreadable while using it. The
+ * every page: for a six-page article that is forty entries of "leesvolgorde ·
+ * p3". Useful while building it, unreadable while using it. The
  * same events are folded here into the few things someone actually waits for -
  * the document-wide stages, and then one row per page - so the list says where
  * the job IS instead of everything it has done.
@@ -87,9 +87,9 @@ export function workflowSteps(
           : busy
             ? BUSY[busy.run] ?? busy.run
             : "",
-      textRun: runState(last("run 1 leesvolgorde", page)),
+      textRun: runState(last("leesvolgorde", page)),
       styleRun: runState(
-        last("run 2 opmaak", page) ?? last("opmaak uit de PDF", page),
+        last("opmaak", page) ?? last("opmaak uit de PDF", page),
       ),
       coverage: done ? Math.round(done.check.score * 100) : undefined,
       unknown: done?.check.unknown.length ? done.check.unknown : undefined,

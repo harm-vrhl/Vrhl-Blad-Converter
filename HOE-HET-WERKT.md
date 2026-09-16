@@ -34,7 +34,8 @@ Je sleept een PDF in de dropzone. De browser doet per pagina:
 2. **Beeld rippen** (`ripImages`): de ingesloten bitmaps worden direct uit de PDF
    gehaald, op hun eigen resolutie, met hun plek op de pagina. Per beeld wordt uit
    de tekstlaag ook de tekst ernaast bewaard (`nearby`): de naam onder een
-   portret, een bijschrift. Zo zet run 1 elk portret bij de juiste naam.
+   portret, een bijschrift. Zo zet de leesvolgorde-run elk portret bij de juiste
+   naam.
 3. **Mozaïeken samenvoegen** (`findMosaics` in `lib/mosaic.ts`): een kaart of
    infographic die in de PDF in tientallen stukken is geknipt, wordt weer één
    beeld. De stukken krijgen `partOf` en worden nooit los geplaatst.
@@ -76,20 +77,20 @@ nodig heeft. Wat terugkomt, verschijnt meteen op het scherm en wordt bewaard.
 
 **2c. Per pagina, alle pagina's parallel** (`processPage`)
 
-1. **Run 1: leesvolgorde** (`writeStructure`, prompt `structure`)
+1. **Leesvolgorde** (`writeStructure`, prompt `structure`)
    Schrijft de pagina uit in de volgorde waarin een lezer leest, als platte tekst
    met markers (`## tussenkop`, `> quote`, `~ streamer`, `[image: ...]`,
    `[insert: ...]`). De output streamt live naar het scherm. Een parser
    (`parsePage`) maakt er blokken van.
 2. **Woordindex-check** (`checkAgainstIndex`)
    Staan er meer dan 5 woorden in die niet in de index staan (`UNKNOWN_LIMIT`),
-   dan krijgt run 1 **één herkansing**.
+   dan volgt **één herkansing**, met de misgeschreven woorden erbij.
 3. **Opmaak**
    - Heeft de PDF een leesbare tekstlaag, dan komt vet/cursief uit het
      fontregister (`opmaak uit de PDF`). Geen model nodig.
-   - Zo niet (scan, fonts zonder naam), dan leest **run 2** (`detectStyling`,
+   - Zo niet (scan, fonts zonder naam), dan leest de **opmaak-run** (`detectStyling`,
      prompt `styling`) de opmaak van het beeld.
-   - `placeFragments` zoekt die fragmenten op in de tekst van run 1, en
+   - `placeFragments` zoekt die fragmenten op in de tekst van de leesvolgorde-run, en
      `applyStyles` legt de opmaak eroverheen.
 
 **2d. Compileren** (`compileArticle` in `lib/compile.ts`)
@@ -230,7 +231,7 @@ verzoeken, een verzoek duurt hooguit 800 seconden en is hooguit 4,5 MB. Daarom:
 | Taak | Model (instelling in `.env.local`) |
 |---|---|
 | OCR | `mistral-ocr-latest` (`MISTRAL_OCR_MODEL`) |
-| Artikel schrijven (frontmatter, beeld, run 1, run 2) | `gpt-5.6-terra` (`OPENAI_MODEL`) of Mistral Medium (`MISTRAL_MODEL`) |
+| Artikel schrijven (frontmatter, beeld, leesvolgorde, opmaak) | `gpt-5.6-terra` (`OPENAI_MODEL`) of Mistral Medium (`MISTRAL_MODEL`) |
 | Magazine analyseren (paginascan, inhouds- of grenscontrole) | `gpt-5.6-luna` (`OPENAI_MAGAZINE_MODEL`) |
 | Inhouds- of grenscontrole bij twijfel | het gewone schrijfmodel |
 

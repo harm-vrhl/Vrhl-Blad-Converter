@@ -5,11 +5,11 @@ import type { ExtractedImage } from '@/lib/types';
 import { buildIndex, checkAgainstIndex } from '@/lib/wordindex';
 
 export const runtime = 'nodejs';
-// Run 1 met een tweede poging past ruim in de 300 seconden van een gewone
+// De leesvolgorde-run met een tweede poging past ruim in de 300 seconden van een gewone
 // route, maar een traag model op een volle pagina niet altijd.
 export const maxDuration = 800;
 
-/** Meer woorden buiten de index dan dit, en run 1 krijgt één tweede poging. */
+/** Meer woorden buiten de index dan dit, en de leesvolgorde-run krijgt één tweede poging. */
 const UNKNOWN_LIMIT = 5;
 
 interface Input {
@@ -23,12 +23,12 @@ interface Input {
   /** Door de beoordeling afgewezen beelden die alleen in een kader van het artikel mogen. */
   boxOnly: ExtractedImage[];
   previousTail: string;
-  /** Wat de frontmatter al vastlegde, zodat run 1 het niet herhaalt. */
+  /** Wat de frontmatter al vastlegde, zodat de leesvolgorde-run het niet herhaalt. */
   context: string;
 }
 
 /**
- * Run 1 op één pagina: de pagina in leesvolgorde uitgeschreven, gecontroleerd
+ * De leesvolgorde-run op één pagina: de pagina in leesvolgorde uitgeschreven, gecontroleerd
  * tegen de woordindex. Streamt de tekst zoals hij geschreven wordt.
  */
 export async function POST(request: Request) {
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     if (check.unknown.length > UNKNOWN_LIMIT) {
       send({
         type: 'status',
-        run: 'run 1 leesvolgorde',
+        run: 'leesvolgorde',
         state: 'start',
         page,
         detail: `${check.unknown.length} woorden buiten de index, tweede poging`
