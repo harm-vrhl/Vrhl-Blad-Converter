@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import type { StoredJob } from "@/lib/client/db";
-import { exportFile, pushToSanity, type ExportFormaat } from "@/lib/client/exports";
+import { exportFile, printPdf, pushToSanity, type ExportFormaat } from "@/lib/client/exports";
 import { toPackage } from "@/lib/canonical";
 import { STUDIO, STUDIO_GELUKT } from "@/lib/studio";
 import type { ArticleDocument } from "@/lib/types";
@@ -24,7 +24,8 @@ export function useExports({
   const [pushing, setPushing] = useState<{ done: number; total: number } | null>(null);
 
   /**
-   * Het artikel als download: JSON, HTML, MDX, Word of het pakket als ZIP.
+   * Het artikel als download: JSON, HTML, MDX, Word of het pakket als ZIP, of als
+   * PDF via het printvenster.
    *
    * Wat in de Artikel-tab is rechtgezet gaat mee: het artikel zoals het nu op
    * het scherm staat, niet zoals de run het achterliet. Het maken gebeurt in de
@@ -36,6 +37,11 @@ export function useExports({
       setExporting(formaat);
       setNotice(null);
       try {
+        // PDF is geen download maar het printvenster; zie printPdf.
+        if (formaat === "pdf") {
+          await printPdf(job, current);
+          return;
+        }
         const { blob, name } = await exportFile(job, current, formaat);
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");

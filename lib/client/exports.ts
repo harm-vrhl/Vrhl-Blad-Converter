@@ -12,14 +12,17 @@ import { postJson, runForm } from './post';
 import { errorMessage } from '../util';
 
 /**
- * De uitvoer van een artikel: als JSON, HTML, MDX, Word of pakket-ZIP, en
- * hetzelfde pakket naar Sanity. Alles gaat uit van het artikel zoals het nu op
+ * De uitvoer van een artikel: als JSON, HTML, MDX, Word, PDF of pakket-ZIP, en
+ * hetzelfde pakket naar Vrhl-Blad-Studio (Sanity). Alles gaat uit van het artikel zoals het nu op
  * het scherm staat, met de correcties erin, en alles leest hetzelfde pakket:
  * wat in de ZIP staat, staat ook in de losse JSON, en daar komen HTML, MDX en
  * Word weer uit.
  */
 
-export type ExportFormaat = 'json' | 'html' | 'mdx' | 'docx' | 'zip';
+export type ExportFormaat = 'json' | 'html' | 'mdx' | 'docx' | 'pdf' | 'zip';
+
+/** Wat als bestand wordt gedownload; PDF gaat via het printvenster, zie `printPdf`. */
+export type DownloadFormaat = Exclude<ExportFormaat, 'pdf'>;
 
 /** Het pakket zoals het de deur uit gaat, met de woorddekking van de run erbij. */
 export async function packageOf(job: StoredJob, document: ArticleDocument): Promise<Pakket> {
@@ -33,7 +36,7 @@ export async function packageOf(job: StoredJob, document: ArticleDocument): Prom
 export async function exportFile(
   job: StoredJob,
   document: ArticleDocument,
-  formaat: ExportFormaat
+  formaat: DownloadFormaat
 ): Promise<{ blob: Blob; name: string }> {
   if (formaat === 'zip') return packageZip(job, document);
   const pakket = await packageOf(job, document);
@@ -43,13 +46,8 @@ export async function exportFile(
       return { blob: new Blob([`${JSON.stringify(pakket, null, 2)}\n`], { type: 'application/json' }), name: naam };
     case 'mdx':
       return { blob: new Blob([toMdx(pakket)], { type: 'text/markdown;charset=utf-8' }), name: naam };
-    case 'html': {
-      // Het beeld zit in het bestand zelf, zodat het ook los van de ZIP werkt.
-      const beeld = await imagesOf(job, pakket);
-      const dataUrls = new Map([...beeld].map(([id, b]) => [id, dataUrl(b)]));
-      const html = toHtml(pakket, (item: Asset) => dataUrls.get(item.id) ?? null);
-      return { blob: new Blob([html], { type: 'text/html;charset=utf-8' }), name: naam };
-    }
+    case 'html':
+      return { blob: new Blob([await htmlOf(job, pakket)], { type: 'text/html;charset=utf-8' }), name: naam };
     case 'docx': {
       const beeld = await imagesOf(job, pakket);
       const bytes = toDocx(pakket, (item: Asset) => beeld.get(item.id) ?? null);
@@ -60,6 +58,73 @@ export async function exportFile(
         name: naam
       };
     }
+  }
+}
+
+/** De HTML-export, met het beeld in het bestand zelf, zodat hij ook los van de ZIP werkt. */
+async function htmlOf(job: StoredJob, pakket: Pakket): Promise<string> {
+  const beeld = await imagesOf(job, pakket);
+  const dataUrls = new Map([...beeld].map(([id, b]) => [id, dataUrl(b)]));
+  return toHtml(pakket, (item: Asset) => dataUrls.get(item.id) ?? null);
+}
+
+/**
+ * Het artikel als PDF, via het printvenster van de browser.
+ *
+ * Bewust geen PDF die in code wordt opgebouwd. De lettertypen die in elke PDF
+ * zitten kennen alleen West-Europese tekens, en de artikelen in het archief hebben
+ * er meer: het eindteken ■ (in 6 van de 113), een pijl, een Turkse ş in een naam.
+ * Die zouden vraagtekens worden, en een ander schrift (Grieks, Arabisch, Thai) kan
+ * elk moment in een artikel staan. Printen doet de browser met de lettertypen van
+ * het systeem, dus elk teken klopt, en de PDF ziet eruit als de HTML-export.
+ *
+ * De HTML gaat in een onzichtbaar iframe, wacht tot al het beeld geladen is (anders
+ * print je lege vlakken), en opent dan het printvenster, waarin de redacteur
+ * "Opslaan als PDF" kiest. Chrome noemt het bestand naar de titel van de pagina,
+ * dus die staat tijdens het printen op de titel van het artikel.
+ */
+export async function printPdf(job: StoredJob, artikel: ArticleDocument): Promise<void> {
+  const html = await htmlOf(job, await packageOf(job, artikel));
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+  const frame = window.document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.tabIndex = -1;
+  // Klein en buiten beeld, maar niet `display: none`: dan print de browser niets.
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+
+  const vorigeTitel = window.document.title;
+  let opgeruimd = false;
+  const opruimen = () => {
+    if (opgeruimd) return;
+    opgeruimd = true;
+    window.document.title = vorigeTitel;
+    frame.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  try {
+    await new Promise<void>((klaar, fout) => {
+      frame.onload = () => klaar();
+      frame.onerror = () => fout(new Error('de pagina om te printen kon niet worden geladen'));
+      frame.src = url;
+      window.document.body.appendChild(frame);
+    });
+    const venster = frame.contentWindow;
+    const pagina = frame.contentDocument;
+    if (!venster || !pagina) throw new Error('het printvenster kon niet worden geopend');
+
+    await Promise.all([...pagina.images].map((img) => img.decode().catch(() => undefined)));
+    await pagina.fonts?.ready;
+
+    window.document.title = pagina.title || vorigeTitel;
+    venster.addEventListener('afterprint', () => setTimeout(opruimen, 0), { once: true });
+    // Vangnet voor een browser die geen afterprint stuurt; lang genoeg om rustig te bewaren.
+    setTimeout(opruimen, 10 * 60 * 1000);
+    venster.focus();
+    venster.print();
+  } catch (err) {
+    opruimen();
+    throw err;
   }
 }
 

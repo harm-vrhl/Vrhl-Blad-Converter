@@ -406,7 +406,7 @@ van een kader is een blok als elk ander: net als in het canonieke formaat heeft 
 kader geen vaste titel, dus ook die kop kun je verplaatsen. *Terug naar AI-resultaat* zet
 alles terug.
 
-Boven het artikel staat **Exporteren**, een menu met vijf downloads, allemaal uit
+Boven het artikel staat **Exporteren**, een menu met zes exports, allemaal uit
 datzelfde pakket en met de correcties erin:
 
 | | wat je krijgt |
@@ -415,6 +415,7 @@ datzelfde pakket en met de correcties erin:
 | **HTML** (.html) | één bestand dat in elke browser opengaat, met het beeld erin |
 | **MDX** (.mdx) | Vrhl-Blad MDX voor de site |
 | **Word** (.docx) | om te bewerken of te delen; koppen, kaders met hun tint, lijsten en beeld |
+| **PDF** (.pdf) | via het printvenster: kies *Opslaan als PDF*. Zelfde opmaak als HTML, elk teken klopt |
 | **Pakket** (.zip) | `pakket.json` plus al het beeld |
 
 Daarnaast staat **Vrhl-Blad-Studio**, los van het menu: dat is geen download maar versturen.

@@ -4,6 +4,16 @@ import { altTekst, bijschrift, creditRegel, delen, eersteArtikel, kaal, veiligeL
 /**
  * Het artikel als één HTML-bestand, geschreven vanuit het pakket.
  *
+ * Dit is ook de PDF: die ontstaat door deze HTML in de browser te printen (zie
+ * `printPdf` in lib/client/exports.ts). Het stijlblad heeft daarom een eigen
+ * deel voor print: A4, geen afgebroken beelden of koppen onderaan een pagina, en
+ * de tint van een kader blijft staan, die een browser bij printen anders weglaat.
+ *
+ * De pagina zelf heeft géén marge (`@page{margin:0}`); de marge zit op het
+ * artikel en herhaalt op elke pagina (`box-decoration-break: clone`). Anders zet
+ * Chrome in de marge zijn eigen kop- en voettekst, met datum en het adres van de
+ * pagina, en dat is bij het printen vanuit de app een lelijk `blob:`-adres.
+ *
  * Een consument zoals MDX en Word: dit bestand kent `ArticleDocument` niet, alleen
  * het pakket. Het levert een compleet document dat in elke browser opengaat, met
  * een eigen stijlblad erin, zodat het er zonder de app ook als artikel uitziet.
@@ -185,5 +195,19 @@ figcaption{margin-top:.5rem;font:.8rem/1.4 -apple-system,system-ui,sans-serif;co
 .kader>:last-child{margin-bottom:0}
 ul,ol{margin:0 0 1rem;padding-left:1.4rem}
 li{margin:.2rem 0}
-@media print{body{background:none}article{padding:0}}
+@page{size:A4;margin:0}
+@media print{
+*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+html{font-size:13px}
+body{background:none;font-size:10.5pt}
+article{max-width:none;padding:18mm 17mm 20mm;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.kader{-webkit-box-decoration-break:clone;box-decoration-break:clone}
+figure.groot,figure.extraGroot,figure.header{margin-left:0;margin-right:0}
+figure img{width:auto;max-width:100%;max-height:190mm;margin:0 auto}
+figure,blockquote,li{break-inside:avoid}
+h1,h2,h3,h4,.rubriek,.ondertitel{break-after:avoid}
+figcaption{break-before:avoid}
+p{orphans:3;widows:3}
+a{text-decoration:none}
+}
 `.trim();

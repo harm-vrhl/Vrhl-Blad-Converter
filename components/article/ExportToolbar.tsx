@@ -9,6 +9,7 @@ import {
   Globe,
   Loader2,
   Package,
+  Printer,
   UploadCloud,
   type LucideIcon,
 } from "lucide-react";
@@ -45,6 +46,7 @@ const WEERGAVEN: Optie[] = [
   { formaat: "html", label: "HTML", extensie: ".html", uitleg: "Eén bestand, beeld erin", icoon: Globe },
   { formaat: "mdx", label: "MDX", extensie: ".mdx", uitleg: "Voor de Vrhl-Blad-site", icoon: FileCode },
   { formaat: "docx", label: "Word", extensie: ".docx", uitleg: "Om te bewerken of te delen", icoon: FileText },
+  { formaat: "pdf", label: "PDF", extensie: ".pdf", uitleg: "Kies in het printvenster: Opslaan als PDF", icoon: Printer },
 ];
 const PAKKET: Optie = {
   formaat: "zip",
@@ -56,6 +58,7 @@ const PAKKET: Optie = {
 
 const BEZIG: Record<ExportFormaat, string> = {
   docx: "Word maken…",
+  pdf: "PDF klaarzetten…",
   html: "HTML maken…",
   mdx: "MDX maken…",
   json: "JSON maken…",

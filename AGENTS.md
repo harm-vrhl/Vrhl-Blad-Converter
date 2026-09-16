@@ -227,8 +227,10 @@ lib/client/once.ts    een betaalde stap één keer betalen: bewaren en bij herva
                       lezen. Gedeeld door de artikel-run en de magazine-analyse
 lib/client/post.ts    verzoeken bouwen (runForm, 4,4 MB-grens) en SSE lezen
 lib/client/limiter.ts het tempo: maximum tegelijk, Mistral 1 start per seconde
-lib/client/exports.ts elke download (JSON, HTML, MDX, Word, pakket-ZIP) uit hetzelfde
-                      pakket, in de browser; Sanity in stappen
+lib/client/exports.ts elke export (JSON, HTML, MDX, Word, PDF, pakket-ZIP) uit hetzelfde
+                      pakket, in de browser; Sanity in stappen. PDF is de HTML-export,
+                      geprint via een iframe: geen PDF in code, want de lettertypen
+                      in een PDF kennen ■, pijlen en andere schriften niet
 lib/server/run.ts     wat elke route deelt: verzoek lezen, kosten, streamen
 app/api/run/          check, ocr, frontmatter, images, page (leesvolgorde), styling (opmaak)
 app/api/magazine/     scan (per pagina), boundary (per overgang)
@@ -246,7 +248,9 @@ lib/zip.ts            pakket.json plus het beeld als ZIP, zonder dependency en
 lib/mdx.ts            schrijft MDX, en leest daarvoor het PAKKET, niet het
                       artikelobject: het pakket is de bron, MDX een consument
 lib/html.ts           het artikel als één HTML-bestand, ook een consument van het pakket;
-                      het beeld komt via een functie binnen (data-URL of pad)
+                      het beeld komt via een functie binnen (data-URL of pad). Het
+                      print-deel van het stijlblad ís de PDF: @page zonder marge, anders
+                      zet Chrome zijn kop- en voettekst met een blob:-adres erop
 lib/docx.ts           het artikel als Word-document, zonder dependency, op lib/zip.ts.
                       De volgorde van elementen in de XML ligt vast in het schema
 lib/pakketlezen.ts    wat HTML en Word allebei uit het pakket lezen: tekstdelen,
