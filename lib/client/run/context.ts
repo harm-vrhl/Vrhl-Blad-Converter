@@ -1,8 +1,9 @@
 'use client';
 
 import type { PageAsset, RunUsage } from '../../types';
-import { getData, needFile, putData, type StoredJob } from '../db';
+import { needFile, type StoredJob } from '../db';
 import { limiter, type Limiter } from '../limiter';
+import { onceIn, type Once } from '../once';
 
 interface Settings {
   concurrency: number;
@@ -58,7 +59,7 @@ export interface RunContext {
   bill: Bill;
   add: (usage: RunUsage | undefined) => void;
   /** Een stap die maar één keer betaald hoeft te worden: bewaard, en bij hervatten gelezen. */
-  once: <T extends { usage?: RunUsage }>(name: string, work: () => Promise<T>) => Promise<T>;
+  once: Once;
   files: (names: string[]) => Promise<Record<string, Blob>>;
 }
 
@@ -78,18 +79,7 @@ export async function runContext(job: StoredJob, provider: 'openai' | 'mistral')
     bill.currency = usage.currency;
   };
 
-  /** Een stap die maar één keer betaald hoeft te worden: bewaard, en bij hervatten gelezen. */
-  const once = async <T extends { usage?: RunUsage }>(name: string, work: () => Promise<T>): Promise<T> => {
-    const cached = await getData<T>(id, `run/${name}`);
-    if (cached) {
-      add(cached.usage);
-      return cached;
-    }
-    const fresh = await work();
-    await putData(id, `run/${name}`, fresh);
-    add(fresh.usage);
-    return fresh;
-  };
+  const once = onceIn(id, add);
 
   const files = async (names: string[]) =>
     Object.fromEntries(await Promise.all(names.map(async (name) => [name, await needFile(id, name)] as const)));

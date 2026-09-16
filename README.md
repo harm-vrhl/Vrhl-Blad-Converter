@@ -203,7 +203,9 @@ andere machine landen en een schijf blijft niet bestaan. Daarom:
   op de server blijven.
 - **Elke stap wordt meteen bewaard.** Stopt een run halverwege (tabblad dicht,
   netwerk weg), dan gaat *Verder waar het stopte* verder zonder de OCR en de
-  klaargezette pagina's opnieuw te betalen.
+  klaargezette pagina's opnieuw te betalen. Hetzelfde geldt voor de analyse van
+  een heel magazine: pagina's die al bekeken zijn gaan niet nog een keer langs
+  het model.
 
 Twee grenzen van Vercel bepalen hoe dat is opgeknipt:
 

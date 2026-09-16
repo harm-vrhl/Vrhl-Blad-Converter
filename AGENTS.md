@@ -118,6 +118,11 @@ Daarna knipt de browser per gekozen artikel de hele pagina's uit het magazine
 en run. **Knip nooit binnen een pagina** (geen CropBox, geen regio's): een
 gedeelde pagina gaat heel mee.
 
+De analyse is te hervatten: elke paginascan, inhoudscontrole en grenscontrole
+wordt apart bewaard, dus een analyse die halverwege stopt kost bij "Verder waar
+het stopte" alleen nog wat er niet gelukt was. Het rijgen gebeurt wel elke keer
+opnieuw; dat zijn regels en die kosten niets.
+
 Omzetten gebeurt op de achtergrond in `components/magazine/useMagazine.ts`: uitlezen
 (renderen, rippen, opslaan) één artikel tegelijk, want dat is zwaar in het
 tabblad; de runs lopen naast elkaar, `MAGAZINE_ARTICLE_CONCURRENCY` tegelijk.
@@ -156,8 +161,14 @@ Daaruit volgen vaste regels:
    tegelijk en Mistrals één start per seconde, gedeeld door alle runs in het
    tabblad. `lib/llm/ratelimit.ts` op de server ziet maar één instantie.
 5. **Elke stap wordt bewaard voor hij telt.** Resultaten staan onder
-   `data/<id>/run/...`; `runArticle(id, provider, { resume: true })` slaat over
-   wat er al is. Een nieuwe run zonder `resume` begint schoon.
+   `data/<id>/run/...`, gezet door `onceIn` in `lib/client/once.ts`. Zowel
+   `runArticle(id, provider, { resume: true })` als
+   `analyzeMagazine(id, provider, { resume: true })` slaat over wat er al is; zonder
+   `resume` wordt `run/` eerst gewist en begint het schoon. Alleen een geslaagde
+   stap wordt bewaard, dus een mislukte pagina gaat bij het hervatten opnieuw.
+   Zet elke betaalde stap die je toevoegt in `once`. Let op: de sleutel zegt niet
+   wie het geschreven heeft, dus hervatten na het wisselen van aanbieder of na een
+   promptwijziging levert een gemengde uitkomst.
 6. **Een slot op de deur.** `middleware.ts` met `APP_PASSWORD`; zonder die
    variabele staat alles open (lokaal).
 
@@ -208,6 +219,8 @@ lib/client/run/       de fases van één run, op volgorde: context (tempo, bon, 
                       words (OCR), opening (frontmatter en beeld, kopcontrole),
                       page (leesvolgorde en opmaak per pagina)
 lib/client/db.ts      IndexedDB: jobs, magazines, bestanden, tussenresultaten
+lib/client/once.ts    een betaalde stap één keer betalen: bewaren en bij hervatten
+                      lezen. Gedeeld door de artikel-run en de magazine-analyse
 lib/client/post.ts    verzoeken bouwen (runForm, 4,4 MB-grens) en SSE lezen
 lib/client/limiter.ts het tempo: maximum tegelijk, Mistral 1 start per seconde
 lib/client/exports.ts pakket-ZIP in de browser, Sanity in stappen

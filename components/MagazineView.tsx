@@ -86,6 +86,10 @@ export function MagazineView({
     currency: states.find((p) => p.currency)?.currency ?? "USD",
   };
   const unsure = map?.articles.filter((a) => !a.certain).length ?? 0;
+  // Een analyse die is blijven steken heeft zijn bekeken pagina's nog staan; die
+  // hoeven niet nog een keer langs het model.
+  const canResume =
+    phase !== "analyzing" && (magazine?.status === "running" || magazine?.status === "error");
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -155,16 +159,28 @@ export function MagazineView({
               </Button>
             </>
           ) : (
-            <Button variant="brand" disabled={phase !== "ready" && phase !== "error"} onClick={() => void analyze()}>
-              {phase === "analyzing" ? (
-                <>
-                  <Loader2 className="animate-spin" />
-                  Analyseren…
-                </>
-              ) : (
-                "Analyseren"
-              )}
-            </Button>
+            <>
+              {canResume ? (
+                <Button
+                  variant="outline"
+                  disabled={busy || converting}
+                  title="Wat al bekeken is, wordt niet opnieuw betaald"
+                  onClick={() => void analyze(true)}
+                >
+                  Verder waar het stopte
+                </Button>
+              ) : null}
+              <Button variant="brand" disabled={phase !== "ready" && phase !== "error"} onClick={() => void analyze()}>
+                {phase === "analyzing" ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    Analyseren…
+                  </>
+                ) : (
+                  "Analyseren"
+                )}
+              </Button>
+            </>
           )}
         </div>
         <input

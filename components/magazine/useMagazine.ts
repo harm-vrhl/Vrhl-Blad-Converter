@@ -150,7 +150,12 @@ export function useMagazine({
     }
   }, []);
 
-  const analyze = useCallback(async () => {
+  /**
+   * `resume` laat staan wat er al bekeken is: alleen de pagina's en controles die
+   * nog niet gelukt zijn gaan opnieuw het model in. Het scherm begint wel leeg,
+   * want de bewaarde antwoorden komen als dezelfde gebeurtenissen weer binnen.
+   */
+  const analyze = useCallback(async (resume = false) => {
     if (!magazine) return;
     setPhase("analyzing");
     setNotice(null);
@@ -162,7 +167,7 @@ export function useMagazine({
 
     let failed = false;
     try {
-      for await (const event of analyzeMagazine(magazine.id, provider)) handle(event);
+      for await (const event of analyzeMagazine(magazine.id, provider, { resume })) handle(event);
       if (!failed) setPhase((p) => (p === "analyzing" ? "done" : p));
     } catch (err) {
       setNotice(errorMessage(err));

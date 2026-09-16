@@ -16,9 +16,10 @@ import type {
   PageScan
 } from '../magazine/types';
 import type { RunUsage } from '../types';
-import { errorMessage, EventQueue } from '../util';
-import { loadMagazine, needFile, putData, saveMagazine } from './db';
+import { errorMessage, EventQueue, pad2 } from '../util';
+import { deleteData, loadMagazine, needFile, putData, saveMagazine } from './db';
 import { limiter, type Limiter } from './limiter';
+import { onceIn } from './once';
 import { postJson, runForm } from './post';
 
 /**
@@ -37,6 +38,12 @@ import { postJson, runForm } from './post';
  *
  * Dit liep als één verzoek van een uur op de server. Nu is elke pagina en elke
  * overgang een eigen kort verzoek, en rijgt de browser ze aaneen.
+ *
+ * Elk van die verzoeken wordt bewaard zodra het gelukt is. Een analyse die
+ * halverwege stopt kan met `resume` verder: het rijgen gebeurt opnieuw, want dat
+ * zijn regels en die kosten niets, maar een pagina die al bekeken is wordt niet
+ * nog een keer betaald. Dat scheelt bij een magazine het meest: zestig pagina's
+ * opnieuw laten bekijken om één netwerkfout is een dure manier om te herstellen.
  */
 
 /** Wat van de tekstlaag meegaat; de scan knipt zelf ook, dit houdt het verzoek klein. */
@@ -59,7 +66,8 @@ function lanesFor() {
 
 export async function* analyzeMagazine(
   magazineId: string,
-  provider: 'openai' | 'mistral'
+  provider: 'openai' | 'mistral',
+  options: { resume?: boolean } = {}
 ): AsyncGenerator<MagazineEvent, void, void> {
   const found = await loadMagazine(magazineId);
   if (!found) {
@@ -77,6 +85,7 @@ export async function* analyzeMagazine(
     return;
   }
 
+  if (!options.resume) await deleteData(magazine.id, 'run');
   magazine.status = 'running';
   magazine.error = null;
   await saveMagazine(magazine);
@@ -96,12 +105,14 @@ async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): Asy
   const { openai, mistral } = await lanesFor();
   const lane = provider === 'mistral' ? mistral : openai;
   const bill = { calls: 0, tokens: 0, cost: 0, currency: 'USD' };
-  const add = (usage: RunUsage) => {
+  const add = (usage: RunUsage | undefined) => {
+    if (!usage) return;
     bill.calls += usage.calls;
     bill.tokens += usage.tokens;
     bill.cost += usage.ai;
     bill.currency = usage.currency;
   };
+  const once = onceIn(magazine.id, add);
   const files = async (names: string[]) =>
     Object.fromEntries(await Promise.all(names.map(async (name) => [name, await needFile(magazine.id, name)] as const)));
 
@@ -113,30 +124,31 @@ async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): Asy
   const work = Promise.all(
     pages.map(async (page, i): Promise<PageScan> => {
       try {
-        return await lane(async () => {
-          scanning.push({ type: 'status', run: 'paginascan', state: 'start', page: page.pdf });
-          const input: PageScanInput = {
-            pdf: page.pdf,
-            total: pages.length,
-            image: page.image,
-            previousImage: pages[i - 1]?.image ?? null,
-            nextImage: pages[i + 1]?.image ?? null,
-            isSpread: isSpread(page),
-            text: page.text.slice(0, TEXT_LIMIT),
-            label: page.label,
-            previousText: (pages[i - 1]?.text ?? '').slice(-NEIGHBOUR),
-            nextText: (pages[i + 1]?.text ?? '').slice(0, NEIGHBOUR)
-          };
-          const names = [input.previousImage, input.image, input.nextImage].filter((n): n is string => !!n);
-          const { scan, usage } = await postJson<{ scan: PageScan; usage: RunUsage }>(
-            '/api/magazine/scan',
-            runForm({ provider, ...input }, await files(names), `Pagina ${page.pdf} met zijn buren`)
-          );
-          add(usage);
-          scanning.push({ type: 'scan', scan });
-          scanning.push({ type: 'status', run: 'paginascan', state: 'ok', page: page.pdf, detail: describeScan(scan) });
-          return scan;
-        });
+        const { scan } = await once(`scan-p${pad2(page.pdf)}`, () =>
+          lane(async () => {
+            scanning.push({ type: 'status', run: 'paginascan', state: 'start', page: page.pdf });
+            const input: PageScanInput = {
+              pdf: page.pdf,
+              total: pages.length,
+              image: page.image,
+              previousImage: pages[i - 1]?.image ?? null,
+              nextImage: pages[i + 1]?.image ?? null,
+              isSpread: isSpread(page),
+              text: page.text.slice(0, TEXT_LIMIT),
+              label: page.label,
+              previousText: (pages[i - 1]?.text ?? '').slice(-NEIGHBOUR),
+              nextText: (pages[i + 1]?.text ?? '').slice(0, NEIGHBOUR)
+            };
+            const names = [input.previousImage, input.image, input.nextImage].filter((n): n is string => !!n);
+            return postJson<{ scan: PageScan; usage: RunUsage }>(
+              '/api/magazine/scan',
+              runForm({ provider, ...input }, await files(names), `Pagina ${page.pdf} met zijn buren`)
+            );
+          })
+        );
+        scanning.push({ type: 'scan', scan });
+        scanning.push({ type: 'status', run: 'paginascan', state: 'ok', page: page.pdf, detail: describeScan(scan) });
+        return scan;
       } catch (err) {
         // One page that cannot be read does not lose the magazine; the stitching
         // marks the article it falls in.
@@ -204,16 +216,16 @@ async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): Asy
       state: 'start',
       detail: `${questions.length} pagina('s) om na te kijken`
     };
-    const ask = (input: ContentInput, strong: boolean) =>
-      lane(async () => {
-        const result = await postJson<{
-          answer: { verdict: ContentVerdict; belonging: string[]; reason: string };
-          model: string;
-          usage: RunUsage;
-        }>('/api/magazine/content', runForm({ provider, strong, ...input }, await files([input.image]), 'De inhoudscontrole'));
-        add(result.usage);
-        return result;
-      });
+    const ask = (question: string, input: ContentInput, strong: boolean) =>
+      once(`content-${question}${strong ? '-tweede-blik' : ''}`, () =>
+        lane(async () =>
+          postJson<{
+            answer: { verdict: ContentVerdict; belonging: string[]; reason: string };
+            model: string;
+            usage: RunUsage;
+          }>('/api/magazine/content', runForm({ provider, strong, ...input }, await files([input.image]), 'De inhoudscontrole'))
+        )
+      );
 
     const checking = new EventQueue<MagazineEvent>();
     const found: ContentCheck[] = [];
@@ -240,10 +252,10 @@ async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): Asy
           pieces: question.pieces.map((p) => ({ title: p.title, rubric: p.rubric, about: p.about, starts: p.starts }))
         };
         try {
-          let { answer, model } = await ask(input, false);
+          let { answer, model } = await ask(question.id, input, false);
           if (answer.verdict === 'onduidelijk') {
             checking.push({ type: 'status', run: 'inhoudscontrole', state: 'start', page: question.pdf, detail: `${label}: tweede blik` });
-            ({ answer, model } = await ask(input, true));
+            ({ answer, model } = await ask(question.id, input, true));
           }
           const check: ContentCheck = { question: question.id, article: article.id, pdf: question.pdf, ...answer, model };
           found.push(check);
@@ -294,17 +306,17 @@ async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): Asy
       return { from, to, input };
     });
 
-    const ask = (input: BoundaryInput, strong: boolean) =>
-      lane(async () => {
-        const names = input.samePage ? [input.startImage] : [input.lastImage, input.startImage];
-        const result = await postJson<{
-          answer: { verdict: BoundaryVerdict; continuesOn: string | null; reason: string };
-          model: string;
-          usage: RunUsage;
-        }>('/api/magazine/boundary', runForm({ provider, strong, ...input }, await files(names), 'De grenscontrole'));
-        add(result.usage);
-        return result;
-      });
+    const ask = (pair: string, input: BoundaryInput, strong: boolean) =>
+      once(`boundary-${pair}${strong ? '-tweede-blik' : ''}`, () =>
+        lane(async () => {
+          const names = input.samePage ? [input.startImage] : [input.lastImage, input.startImage];
+          return postJson<{
+            answer: { verdict: BoundaryVerdict; continuesOn: string | null; reason: string };
+            model: string;
+            usage: RunUsage;
+          }>('/api/magazine/boundary', runForm({ provider, strong, ...input }, await files(names), 'De grenscontrole'));
+        })
+      );
 
     const checking = new EventQueue<MagazineEvent>();
     const checks = Promise.all(
@@ -312,10 +324,11 @@ async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): Asy
         const label = `${from.title ?? from.id} → ${to.title ?? to.id}`;
         checking.push({ type: 'status', run: 'grenscontrole', state: 'start', page: to.pages[0], detail: label });
         try {
-          let { answer, model } = await ask(input, false);
+          const pair = `${from.id}-${to.id}`;
+          let { answer, model } = await ask(pair, input, false);
           if (answer.verdict === 'onduidelijk') {
             checking.push({ type: 'status', run: 'grenscontrole', state: 'start', page: to.pages[0], detail: `${label}: tweede blik` });
-            ({ answer, model } = await ask(input, true));
+            ({ answer, model } = await ask(pair, input, true));
           }
           const check: BoundaryCheck = { from: from.id, to: to.id, ...answer, model };
           applyBoundary(map, check);
