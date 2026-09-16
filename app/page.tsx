@@ -10,6 +10,7 @@ import { useArticleRun, type Tab } from "@/components/article/useArticleRun";
 import { useExports } from "@/components/article/useExports";
 import { useSettings } from "@/components/article/useSettings";
 import { useSidebar } from "@/components/article/useSidebar";
+import { STUDIO_GELUKT } from "@/lib/studio";
 import { WorkflowSidebar } from "@/components/article/WorkflowSidebar";
 import { Checks } from "@/components/Checks";
 import { MagazineView } from "@/components/MagazineView";
@@ -103,7 +104,7 @@ export default function Home() {
 
   const idle = !job && phase !== "rendering";
   const workspace = !showMagazine && !(idle || (phase === "rendering" && !job));
-  const noticeOk = !!notice && notice.startsWith("Naar Sanity");
+  const noticeOk = !!notice && notice.startsWith(STUDIO_GELUKT);
 
   return (
     <div className="flex h-svh flex-col overflow-hidden">

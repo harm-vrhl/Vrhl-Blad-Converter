@@ -1,6 +1,7 @@
 import type { Pakket } from '@/lib/canonical';
 import { sanityReady } from '@/lib/env';
 import { SanityError } from '@/lib/sanity/client';
+import { STUDIO } from '@/lib/studio';
 import { pushPackage } from '@/lib/sanity/push';
 import { readRun } from '@/lib/server/run';
 import type { ExtractedImage } from '@/lib/types';
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
     if (!pakket?.artikelen) return Response.json({ error: 'er zat geen pakket in het verzoek' }, { status: 400 });
     if (!dryRun && !sanityReady()) {
       return Response.json(
-        { error: 'Sanity is niet ingesteld; vul NEXT_PUBLIC_SANITY_PROJECT_ID, NEXT_PUBLIC_SANITY_DATASET en SANITY_API_TOKEN in' },
+        { error: `${STUDIO} is niet gekoppeld; vul NEXT_PUBLIC_SANITY_PROJECT_ID, NEXT_PUBLIC_SANITY_DATASET en SANITY_API_TOKEN in` },
         { status: 409 }
       );
     }

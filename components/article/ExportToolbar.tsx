@@ -23,8 +23,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ExportFormaat } from "@/lib/client/exports";
+import { STUDIO } from "@/lib/studio";
 
-// Geen Tooltip op de Sanity-knop, met opzet: zie AppHeader.
+// Geen Tooltip op de knop van Vrhl-Blad-Studio, met opzet: zie AppHeader.
 
 interface Optie {
   formaat: ExportFormaat;
@@ -61,7 +62,7 @@ const BEZIG: Record<ExportFormaat, string> = {
   zip: "Inpakken…",
 };
 
-/** Exporteren in één menu, en daarnaast Sanity: dat is geen download maar versturen. */
+/** Exporteren in één menu, en daarnaast Vrhl-Blad-Studio: dat is geen download maar versturen. */
 export function ExportToolbar({
   ready,
   exporting,
@@ -102,8 +103,8 @@ export function ExportToolbar({
         disabled={!!pushing || !settings?.sanity?.ready}
         title={
           settings?.sanity?.ready
-            ? `Als concept naar ${settings.sanity.projectId} · ${settings.sanity.dataset}`
-            : "Vul NEXT_PUBLIC_SANITY_PROJECT_ID, NEXT_PUBLIC_SANITY_DATASET en SANITY_API_TOKEN in"
+            ? `Als concept naar ${STUDIO} (dataset ${settings.sanity.dataset})`
+            : `${STUDIO} is niet gekoppeld: vul NEXT_PUBLIC_SANITY_PROJECT_ID, NEXT_PUBLIC_SANITY_DATASET en SANITY_API_TOKEN in`
         }
         onClick={() => void pushSanity()}
       >
@@ -116,7 +117,7 @@ export function ExportToolbar({
           ? pushing.total && pushing.done < pushing.total
             ? `Beeld ${pushing.done + 1}/${pushing.total}`
             : "Versturen…"
-          : "Sanity"}
+          : STUDIO}
       </ToolbarButton>
     </QuietToolbar>
   );

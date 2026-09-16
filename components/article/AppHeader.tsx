@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import type { StoredJob } from "@/lib/client/db";
 import type { RenderStep } from "@/lib/client/render";
 
-// Geen Tooltip hier met opzet: de hints bij de schakelaar en de Sanity-knop zijn
+// Geen Tooltip hier met opzet: de hints bij de schakelaar en de knop van Vrhl-Blad-Studio zijn
 // juist nodig als die knoppen uit staan, en een tooltip krijgt op een disabled
 // element geen pointer-events. Het native title-attribuut wel.
 

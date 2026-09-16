@@ -123,7 +123,7 @@ platte `content`-lijst.
   de PDF als thumbnails in vier groepen, opmaak per fragment, waarschuwingen).
 - **Pakket**: het artikel als **Vrhl Content Package** (`toPackage`, `pakket.json`
   plus beeld in een ZIP). MDX is alleen nog een export, uit dat pakket geschreven (`toMdx`).
-- **Sanity**: het pakket gaat als **concept** naar het CMS, nooit live.
+- **Vrhl-Blad-Studio** (Sanity eronder): het pakket gaat als **concept** naar het CMS, nooit live.
 
 ---
 

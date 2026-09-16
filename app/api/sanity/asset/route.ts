@@ -1,6 +1,7 @@
 import { sanityReady } from '@/lib/env';
 import { SanityError, uploadImage } from '@/lib/sanity/client';
 import { readRun } from '@/lib/server/run';
+import { STUDIO } from '@/lib/studio';
 import { errorMessage } from '@/lib/util';
 
 export const runtime = 'nodejs';
@@ -17,7 +18,7 @@ interface Input {
  */
 export async function POST(request: Request) {
   if (!sanityReady()) {
-    return Response.json({ error: 'Sanity is niet ingesteld op de server' }, { status: 409 });
+    return Response.json({ error: `${STUDIO} is niet gekoppeld op de server` }, { status: 409 });
   }
   try {
     const run = await readRun<Input>(request);

@@ -1,4 +1,5 @@
 import { env } from '../env';
+import { STUDIO } from '../studio';
 
 /**
  * De HTTP-kant van Sanity, en verder niets.
@@ -30,7 +31,7 @@ function assertConfigured(): void {
   if (!env.sanityDataset) missing.push('NEXT_PUBLIC_SANITY_DATASET');
   if (!env.sanityToken) missing.push('SANITY_API_TOKEN');
   if (missing.length) {
-    throw new SanityError(`Sanity is niet ingesteld; vul ${missing.join(', ')} in .env.local`, 0);
+    throw new SanityError(`${STUDIO} is niet gekoppeld; vul ${missing.join(', ')} in bij de omgevingsvariabelen`, 0);
   }
 }
 

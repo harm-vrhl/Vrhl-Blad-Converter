@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import type { StoredJob } from "@/lib/client/db";
 import { exportFile, pushToSanity, type ExportFormaat } from "@/lib/client/exports";
 import { toPackage } from "@/lib/canonical";
+import { STUDIO, STUDIO_GELUKT } from "@/lib/studio";
 import type { ArticleDocument } from "@/lib/types";
 import { errorMessage } from "@/lib/util";
 
@@ -53,7 +54,7 @@ export function useExports({
   );
 
   /**
-   * Het artikel naar Sanity, als concept.
+   * Het artikel naar Vrhl-Blad-Studio (Sanity), als concept.
    *
    * Wat hier weggaat is het pakket, niet het artikelobject: de importer leest
    * hetzelfde formaat dat ook naar MDX of Word gaat, met de correcties erin. De
@@ -73,13 +74,13 @@ export function useExports({
         body.created.length ? `nieuw aangemaakt: ${body.created.join(", ")}` : null,
       ].filter(Boolean);
       setNotice(
-        `Naar Sanity: ${deel.join(" · ")}.${
+        `${STUDIO_GELUKT} ${deel.join(" · ")}.${
           body.warnings.length ? ` Let op: ${body.warnings.join(" · ")}` : ""
         }`,
       );
     } catch (err) {
       setNotice(
-        `Het duwen naar Sanity is niet gelukt: ${errorMessage(err)}`,
+        `Het versturen naar ${STUDIO} is niet gelukt: ${errorMessage(err)}`,
       );
     } finally {
       setPushing(null);

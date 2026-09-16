@@ -417,7 +417,7 @@ datzelfde pakket en met de correcties erin:
 | **Word** (.docx) | om te bewerken of te delen; koppen, kaders met hun tint, lijsten en beeld |
 | **Pakket** (.zip) | `pakket.json` plus al het beeld |
 
-Daarnaast staat **Sanity**, los van het menu: dat is geen download maar versturen.
+Daarnaast staat **Vrhl-Blad-Studio**, los van het menu: dat is geen download maar versturen.
 
 Het pakket als ZIP bevat `pakket.json` en het beeld ernaast. Zo
 uitgepakt is het te controleren met de validator van het formaat zelf:
@@ -440,13 +440,18 @@ Wat de PDF niet kan weten (tags, editie, SEO, video) blijft weg in plaats van
 verzonnen te worden. Alt-teksten ook: staat er geen bijschrift bij het beeld, dan
 komt er geen alt, en meldt de validator dat als waarschuwing.
 
-## Naar Sanity
+## Naar Vrhl-Blad-Studio
 
-*Push naar Sanity* zet het pakket als **concept** in het CMS. Concept, altijd:
+Vrhl-Blad-Studio is het eigen CMS van de redactie, met Sanity eronder. In de
+interface heet het overal Vrhl-Blad-Studio; in de code, de API-routes en de
+omgevingsvariabelen heet het Sanity, want daar gaat het om Sanity zelf. De naam
+voor gebruikers staat op één plek: `lib/studio.ts`.
+
+De knop *Vrhl-Blad-Studio* zet het pakket als **concept** in het CMS. Concept, altijd:
 deze converter zet `publicatie.klaar` nooit op `true`, dus een import kan niet
 meteen live staan. De redactie publiceert zelf.
 
-Vul hiervoor drie dingen in `.env.local`:
+Vul hiervoor drie dingen in `.env.local`, en op Vercel bij de omgevingsvariabelen:
 
 ```
 NEXT_PUBLIC_SANITY_PROJECT_ID=

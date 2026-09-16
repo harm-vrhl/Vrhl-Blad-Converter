@@ -255,6 +255,8 @@ components/BlockDrag.tsx  blokken verslepen in de Artikel-tab, ook een kader in 
                       pointer-events (geen HTML-drag-and-drop), pijltjes, Escape
 lib/client/edit.ts    leest een correctie uit de Artikel-tab terug naar
                       tekst plus styles, met dezelfde telling als spans.ts
+lib/studio.ts         hoe het CMS heet voor de gebruiker: Vrhl-Blad-Studio. Alles wat een
+                      redacteur leest gebruikt STUDIO; code, routes en SANITY_* heten Sanity
 lib/sanity/client.ts  de drie endpoints van Sanity, met fetch en zonder SDK
 lib/sanity/documents.ts  pakket -> Sanity-documenten. Rekenen, geen I/O, zodat
                       het te controleren is zonder iets te versturen
