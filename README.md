@@ -347,7 +347,7 @@ niet in het bestand.
 
 ```
 app/                UI en API-routes
-components/         Workflow, ArticleView, MagazineView, Checks
+components/         Workflow, ArticleView, MagazineView, Checks (Controle-tab)
 prompts.json        alle prompts, buiten de code, om te tweaken
 lib/agents/         frontmaster, imagetriage, structure (leesvolgorde), styling (opmaak)
 lib/client/images.ts  ript de bitmaps uit de PDF met pdf.js

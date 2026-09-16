@@ -306,6 +306,7 @@ export default function Home() {
           ) : null}
           {tab === "checks" ? (
             <Checks
+              owner={job?.id}
               pages={pageResults}
               images={job?.images ?? []}
               verdicts={verdicts}

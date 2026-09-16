@@ -21,6 +21,7 @@ import { compileArticle, frameTitlesAsHeadings } from '../lib/compile';
 import { boxOnly, rescueBoxed } from '../lib/imagefilter';
 import { stitch } from '../lib/magazine/stitch';
 import { toMdx } from '../lib/mdx';
+import { groupPictures, type Picture } from '../lib/pictures';
 import type { StoredJob } from '../lib/client/db';
 import type { ExtractedImage, Frontmatter, ImageVerdict, PageResult } from '../lib/types';
 
@@ -57,6 +58,13 @@ function article(dir: string): Outputs | null {
 
   const out: Outputs = {};
   out.boxOnly = attempt(() => boxOnly(images, verdicts).map((i) => i.id));
+  // Welk beeld het artikel haalde en welk niet, zoals de Controle-tab het toont.
+  out.pictures = attempt(() => {
+    const groups = groupPictures(images, verdicts, pages);
+    return Object.fromEntries(
+      Object.entries(groups).map(([name, list]) => [name, list.map((p: Picture) => `${p.image.id}: ${p.note}`)])
+    );
+  });
   out.rescueBoxed = attempt(() => rescueBoxed(verdicts, pages));
   const compiled = attempt(() => compileArticle(stored.frontmatter, pages, stored.source, approved));
   out.compile = compiled;

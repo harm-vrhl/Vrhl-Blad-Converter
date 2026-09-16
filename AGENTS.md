@@ -259,6 +259,8 @@ lib/agents/boundary.ts   magazine: waar houdt het vorige artikel op
 lib/magazine/         stitch (regels: inhoudsopgave leidend, anders pagina's), types
 lib/agents/contentcheck.ts  magazine: hoort dit bij het artikel uit de inhoudsopgave
 lib/nearby.ts         de tekst naast een beeld (naam onder een portret), uit de tekstlaag
+lib/pictures.ts       welk beeld het artikel haalde en welk niet, in vier groepen voor
+                      de Controle-tab. Rekenen, geen React, en staat in npm run golden
 lib/client/analyze.ts    magazine: de analyse geregisseerd vanuit de browser
 lib/client/magazine.ts   magazine klein renderen, en een artikel eruit knippen
 lib/client/article.ts    een artikel-PDF inlezen en opslaan, en een run volgen, zonder
@@ -267,7 +269,9 @@ lib/llm/chat.ts       één client voor OpenAI en Mistral: fetch, geen SDK, stre
 lib/llm/ratelimit.ts  houdt zich aan de limieten die Mistral in elk antwoord meldt
 lib/llm/mistral.ts    OCR, alleen woorden, één pagina per call
 app/                  UI en API-routes
-components/           Workflow (de zijbalk), ArticleView, MagazineView, Checks, PageThumbs, StoredImage
+components/           Workflow (de zijbalk), ArticleView, MagazineView, Checks (de
+                      Controle-tab, met het beeld uit de PDF als thumbnails),
+                      PageThumbs, StoredImage
 components/article/   het artikelscherm uit app/page.tsx: useArticleRun (alle state van
                       een run en de vier resets, die bewust verschillen), useSettings,
                       useSidebar, useExports, en de stukken scherm (AppHeader,

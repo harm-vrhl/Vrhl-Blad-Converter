@@ -1,6 +1,9 @@
 'use client';
 
+import { StoredImage, useStoredUrl } from '@/components/StoredImage';
 import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { groupPictures, type Picture } from '@/lib/pictures';
 import type { ExtractedImage, ImageVerdict, PageResult, Patch } from '@/lib/types';
 
 /**
@@ -8,17 +11,19 @@ import type { ExtractedImage, ImageVerdict, PageResult, Patch } from '@/lib/type
  * Unknown words are inventions; overused words point at duplicated text.
  */
 export function Checks({
+  owner,
   pages,
   images,
   verdicts
 }: {
+  /** De job waar de beelden bij horen, om ze uit de opslag te halen. */
+  owner: string | null | undefined;
   pages: PageResult[];
   images: ExtractedImage[];
   verdicts: ImageVerdict[];
 }) {
   // The ripped bitmaps exist as soon as the PDF is read, before any run.
   if (!pages.length && !images.length) return null;
-  const byId = new Map(verdicts.map((v) => [v.id, v]));
 
   return (
     <div className="grid max-w-3xl gap-3">
@@ -48,30 +53,7 @@ export function Checks({
         </section>
       ) : null}
 
-      {images.length ? (
-        <section className="rounded-xl bg-black/[0.04] px-4 py-3">
-          <h3 className="text-sm font-medium">Beeld uit de PDF</h3>
-          <ul className="mt-2 divide-y divide-black/[0.06]">
-            {images.map((image) => {
-              const verdict = byId.get(image.id);
-              const dropped = verdict ? !verdict.keep : false;
-              return (
-                <li
-                  key={image.id}
-                  className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 py-2.5 text-sm ${dropped ? 'opacity-50' : ''}`}
-                >
-                  <span className="w-24 shrink-0 text-muted-foreground">{image.id}</span>
-                  <span className="w-16 shrink-0 tabular-nums">{image.dpi} dpi</span>
-                  <span className={`min-w-0 flex-1 ${dropped ? 'text-muted-foreground line-through' : 'text-muted-foreground'}`}>
-                    {image.width}&times;{image.height}px, {image.areaPct}% van pagina {image.page} &middot;{' '}
-                    {verdict ? `${verdict.kind}: ${verdict.reason}` : 'niet beoordeeld'}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ) : null}
+      {images.length ? <Pictures owner={owner} images={images} verdicts={verdicts} pages={pages} /> : null}
 
       {pages.some((p) => p.patches.length) ? (
         <section className="rounded-xl bg-black/[0.04] px-4 py-3">
@@ -195,4 +177,158 @@ function overall(pages: PageResult[]): string {
 function clip(text: string): string {
   const line = text.replace(/\s+/g, ' ');
   return line.length > 60 ? `${line.slice(0, 60)}…` : line;
+}
+
+/**
+ * Het beeld uit de PDF, om naar te kijken in plaats van over te lezen.
+ *
+ * De groepen komen uit `lib/pictures.ts`; hier staat alleen hoe ze eruitzien.
+ * Stukken van een opgeknipt beeld staan apart en dichtgeklapt: dat zijn er soms
+ * honderd, en ze zeggen alleen iets als je ze zoekt.
+ */
+function Pictures({
+  owner,
+  images,
+  verdicts,
+  pages
+}: {
+  owner: string | null | undefined;
+  images: ExtractedImage[];
+  verdicts: ImageVerdict[];
+  pages: PageResult[];
+}) {
+  const { inArticle, kept, dropped, shards } = groupPictures(images, verdicts, pages);
+
+  return (
+    <section className="rounded-xl bg-black/[0.04] px-4 py-3">
+      <h3 className="text-sm font-medium">Beeld uit de PDF</h3>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {images.length} uit de PDF gerip{images.length === 1 ? 't' : 't'} &middot; {inArticle.length} in het artikel
+        {kept.length ? ` \u00b7 ${kept.length} goedgekeurd maar nergens geplaatst` : ''}
+        {dropped.length ? ` \u00b7 ${dropped.length} niet doorgekomen` : ''}
+        {shards.length ? ` \u00b7 ${shards.length} stuk(ken) van opgeknipte beelden` : ''}
+      </p>
+
+      <Group title="In het artikel" pictures={inArticle} owner={owner} />
+      <Group
+        title="Goedgekeurd, maar nergens geplaatst"
+        hint="De beeldbeoordeling liet deze door; de leesvolgorde-run heeft ze niet in de tekst gezet."
+        pictures={kept}
+        owner={owner}
+        dimmed
+      />
+      <Group
+        title="Niet doorgekomen"
+        hint="Weggezet als logo, lijntje, ornament, advertentie of beeld van een ander stuk."
+        pictures={dropped}
+        owner={owner}
+        dimmed
+      />
+
+      {shards.length ? (
+        <Collapsible className="mt-4">
+          <CollapsibleTrigger className="mt-4 text-sm font-medium underline-offset-4 hover:underline">
+            Stukken van opgeknipte beelden ({shards.length})
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Eén foto kan als honderd bitmaps in de PDF staan. Losse stukken worden nooit geplaatst; het hele beeld
+              wordt van de pagina gerenderd, of het gaat er allemaal uit.
+            </p>
+            <Tiles pictures={shards} owner={owner} dimmed />
+          </CollapsibleContent>
+        </Collapsible>
+      ) : null}
+    </section>
+  );
+}
+
+function Group({
+  title,
+  hint,
+  pictures,
+  owner,
+  dimmed
+}: {
+  title: string;
+  hint?: string;
+  pictures: Picture[];
+  owner: string | null | undefined;
+  dimmed?: boolean;
+}) {
+  if (!pictures.length) return null;
+  return (
+    <div className="mt-4">
+      <h4 className="text-sm font-medium">
+        {title} <span className="text-muted-foreground tabular-nums">({pictures.length})</span>
+      </h4>
+      {hint ? <p className="mt-0.5 text-sm text-muted-foreground">{hint}</p> : null}
+      <Tiles pictures={pictures} owner={owner} dimmed={dimmed} />
+    </div>
+  );
+}
+
+function Tiles({
+  pictures,
+  owner,
+  dimmed
+}: {
+  pictures: Picture[];
+  owner: string | null | undefined;
+  dimmed?: boolean;
+}) {
+  return (
+    <ul className="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+      {pictures.map((picture) => (
+        <Tile key={picture.image.id} picture={picture} owner={owner} dimmed={dimmed} />
+      ))}
+    </ul>
+  );
+}
+
+/** Eén beeld: de thumbnail, waar het stond, en waarom het er wel of niet in zit. */
+function Tile({
+  picture,
+  owner,
+  dimmed
+}: {
+  picture: Picture;
+  owner: string | null | undefined;
+  dimmed?: boolean;
+}) {
+  const { image, note } = picture;
+  // Het hele bestand, niet de thumbnail: wie twijfelt of een foto de goede is,
+  // moet hem op ware grootte kunnen zien.
+  const full = useStoredUrl(owner, image.file);
+  const frame = (
+    <StoredImage
+      owner={owner}
+      name={image.thumb}
+      alt={image.nearby ?? image.id}
+      className={`h-28 w-full rounded-lg bg-white object-contain ring-1 ring-black/[0.06] ${dimmed ? 'opacity-50 grayscale' : ''}`}
+    />
+  );
+
+  return (
+    <li className="min-w-0">
+      {full ? (
+        <a href={full} target="_blank" rel="noreferrer" title="Op ware grootte openen">
+          {frame}
+        </a>
+      ) : (
+        frame
+      )}
+      <div className="mt-1.5 grid gap-0.5 text-xs">
+        <span className="font-medium">
+          {image.id}
+          {image.parts ? <span className="ml-1 font-normal text-muted-foreground">({image.parts} stukken)</span> : null}
+        </span>
+        <span className="text-muted-foreground tabular-nums">
+          p{image.page} &middot; {image.width}&times;{image.height}px &middot; {image.dpi} dpi &middot; {image.areaPct}%
+        </span>
+        <span className="text-muted-foreground">{note}</span>
+        {image.nearby ? <span className="text-muted-foreground italic">&ldquo;{clip(image.nearby)}&rdquo;</span> : null}
+      </div>
+    </li>
+  );
 }
