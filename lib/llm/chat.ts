@@ -1,3 +1,4 @@
+import { MIN_ATTEMPT_MS, timeLeft, TimeUp, type Deadline } from '../deadline';
 import { env, modelFor, type Provider } from '../env';
 import { sleep } from '../util';
 import { closed, limitOf, observe, slot } from './ratelimit';
@@ -24,6 +25,12 @@ export interface Ledger {
   inputTokens: number;
   outputTokens: number;
   failures: number;
+  /**
+   * Wanneer de route waarin deze aanroep loopt door Vercel wordt afgebroken.
+   * Reist mee op de ledger, net als de aanbieder, zodat agents het niet hoeven
+   * te kennen. Zonder deadline (een script, lokaal) geldt alleen TIMEOUT_MS.
+   */
+  deadline?: Deadline;
 }
 
 export interface ModelChoice {
@@ -209,12 +216,22 @@ async function withRetries<T>(
 
   let lastErr: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
+    // Geen poging beginnen die Vercel toch afbreekt: die kost wel tokens.
+    if (ledger?.deadline && timeLeft(ledger.deadline) < MIN_ATTEMPT_MS) {
+      ledger.failures++;
+      throw new TimeUp(ledger.deadline, 'geen-poging');
+    }
     const surface = surfaceFor(provider);
     try {
       const result = await run(surface);
       if (ledger) ledger.calls++;
       return result;
     } catch (err) {
+      // Tijd op is geen storing: opnieuw proberen past per definitie niet meer.
+      if (err instanceof TimeUp) {
+        if (ledger) ledger.failures++;
+        throw err;
+      }
       lastErr = err;
       const e = err as Failure;
       if (e.fatal) break;
@@ -260,8 +277,16 @@ async function callOnce(
     await slot(bucket, env.mistralReqPerMinute);
   }
 
+  // De kortste van de twee: de eigen time-out van een aanroep, of wat Vercel
+  // deze route nog geeft. Welke van de twee afging, bepaalt de melding.
+  const deadline = opts.ledger?.deadline;
+  const budget = deadline ? Math.min(TIMEOUT_MS, timeLeft(deadline)) : TIMEOUT_MS;
+  let cutByDeadline = false;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => {
+    cutByDeadline = budget < TIMEOUT_MS;
+    ctrl.abort();
+  }, budget);
   try {
     const res = await fetch(urlFor(surface), {
       method: 'POST',
@@ -312,6 +337,9 @@ async function callOnce(
     const body = JSON.parse(await res.text()) as Record<string, unknown>;
     account(usageOf(body, surface), opts.ledger);
     return extract(body, surface, Boolean(json));
+  } catch (err) {
+    if (cutByDeadline && deadline && !(err instanceof TimeUp)) throw new TimeUp(deadline, 'afgekapt');
+    throw err;
   } finally {
     clearTimeout(timer);
   }

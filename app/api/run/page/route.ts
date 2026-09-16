@@ -1,4 +1,5 @@
 import { writeStructure } from '@/lib/agents/structure';
+import { timeLeft } from '@/lib/deadline';
 import { textOf } from '@/lib/pagemarkup';
 import { agentCtx, readRun, requireKeys, sse, usageOf } from '@/lib/server/run';
 import type { ExtractedImage, IndexCheck } from '@/lib/types';
@@ -40,21 +41,39 @@ interface Input {
  * tegen de woordindex. Streamt de tekst zoals hij geschreven wordt.
  */
 export async function POST(request: Request) {
-  const run = await readRun<Input>(request);
+  const run = await readRun<Input>(request, maxDuration);
   return sse(async (send) => {
     requireKeys(run.provider);
     const { page, image, markdown = '', images = [], boxOnly = [], previousTail = '', context = '' } = run.input;
     const ctx = agentCtx(run, context);
     const index = buildIndex(page, markdown);
 
+    const firstStarted = Date.now();
     let result = await writeStructure(ctx, page, image, markdown, images, boxOnly, previousTail, (text) =>
       send({ type: 'delta', page, text })
     );
+    // Hoe lang de eerste poging duurde, is de beste schatting van de tweede.
+    const firstTook = Date.now() - firstStarted;
     // Gecontroleerd op de blokken, niet op de ruwe uitvoer: de markers zijn van
     // ons, niet van de pagina.
     let check = checkAgainstIndex(index, textOf(result.blocks));
 
-    if (check.unknown.length > UNKNOWN_LIMIT) {
+    // Een herkansing die niet meer binnen de tijd van Vercel past, wordt afgebroken
+    // en is dan betaald zonder iets op te leveren. Dan blijft de eerste staan.
+    const roomForRetry = !run.deadline || timeLeft(run.deadline) > firstTook * 1.25;
+    if (check.unknown.length > UNKNOWN_LIMIT && !roomForRetry) {
+      send({
+        type: 'status',
+        run: 'leesvolgorde',
+        state: 'ok',
+        page,
+        detail:
+          `${check.unknown.length} woorden buiten de index, maar geen tijd meer voor een tweede poging ` +
+          `(Vercel geeft deze stap hooguit ${run.deadline?.limit} seconden); de eerste blijft staan`
+      });
+    }
+
+    if (check.unknown.length > UNKNOWN_LIMIT && roomForRetry) {
       send({
         type: 'status',
         run: 'leesvolgorde',
@@ -103,7 +122,7 @@ export async function POST(request: Request) {
       check,
       usage: usageOf([ctx.ledger])
     });
-  });
+  }, maxDuration);
 }
 
 interface Attempt {

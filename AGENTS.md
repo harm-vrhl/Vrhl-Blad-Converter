@@ -369,6 +369,16 @@ gecompileerde artikel:
   pdf.js-render**, niet tegen `sips` of een andere renderer: die legt de pagina
   een paar punten anders neer en dan kloppen de uitkomsten niet met de browser.
 
+- **Vercel breekt een functie hard af na zijn `maxDuration`.** Dan komt er geen
+  fout terug, alleen een afgebroken verbinding, en zijn de tokens van de lopende
+  aanroep wel betaald. Geef daarom in elke route met een model `maxDuration` door
+  aan `readRun(request, maxDuration)`, en aan `sse(werk, maxDuration)` als hij
+  streamt. Dat zet een deadline op de `Ledger` (`lib/deadline.ts`): de modelclient
+  begint geen poging meer met minder dan 60 seconden over, en kapt een lopende af
+  30 seconden vóór Vercel, met een melding die zegt dat de tijd op was. Een stream
+  eindigt met `{ type: 'end' }`; komt die niet, dan zegt `postStream` of het de
+  tijd van Vercel was of de verbinding. Vergeet je `maxDuration` door te geven,
+  dan werkt alles nog, maar zonder die bescherming.
 - **pdf.js rendert via `requestAnimationFrame`**, en een achtergrondtab bevriest
   dat. Daarom `intent: 'print'` in `lib/client/render.ts`. Haal dat niet weg,
   anders hangt het renderen zodra de gebruiker wegklikt.

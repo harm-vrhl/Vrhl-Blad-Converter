@@ -17,7 +17,7 @@ interface Input {
  */
 export async function POST(request: Request) {
   return json(async () => {
-    const run = await readRun<Input>(request);
+    const run = await readRun<Input>(request, maxDuration);
     requireKeys(run.provider);
     const ctx = agentCtx(run);
     const fragments = await detectStyling(ctx, Number(run.input.page), run.input.images ?? []);

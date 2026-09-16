@@ -1,4 +1,5 @@
 import type { AgentCtx } from '../agents/common';
+import { deadlineFor, LIMIT_HEADER, TimeUp, type Deadline } from '../deadline';
 import { env, missingKeys, PROVIDERS, type Provider } from '../env';
 import { aiCost, mistralLimit, newLedger, type Ledger, type ModelChoice } from '../llm/chat';
 import { ocrCost, type OcrLedger } from '../llm/mistral';
@@ -19,13 +20,21 @@ import { errorMessage } from '../util';
 export interface RunRequest<T> {
   input: T;
   provider: Provider;
+  /** Wanneer Vercel deze route afbreekt, als de route zijn `maxDuration` meegaf. */
+  deadline?: Deadline;
   /** Een bestand uit het verzoek als data-URL, voor een agent die het wil zien. */
   image: (name: string) => Promise<string>;
   /** Een bestand uit het verzoek zoals het is, of null als het er niet in zit. */
   file: (name: string) => Promise<{ data: Buffer; type: string } | null>;
 }
 
-export async function readRun<T>(request: Request): Promise<RunRequest<T>> {
+/**
+ * `limit` is het `maxDuration` van de route. Geef het mee: de klok begint hier,
+ * vóór het formulier met zijn beelden is gelezen, en elke modelaanroep in dit
+ * verzoek stopt dan zelf voordat Vercel hem afbreekt.
+ */
+export async function readRun<T>(request: Request, limit?: number): Promise<RunRequest<T>> {
+  const deadline = limit ? deadlineFor(limit) : undefined;
   const form = await request.formData();
   let input: T & { provider?: unknown };
   try {
@@ -48,7 +57,7 @@ export async function readRun<T>(request: Request): Promise<RunRequest<T>> {
     const mime = found.type || (name.endsWith('.png') ? 'image/png' : 'image/jpeg');
     return `data:${mime};base64,${found.data.toString('base64')}`;
   };
-  return { input, provider, image, file };
+  return { input, provider, deadline, image, file };
 }
 
 /** Een fout die de browser moet zien zoals hij is, met zijn eigen status. */
@@ -68,7 +77,9 @@ export function requireKeys(provider: Provider): void {
 }
 
 export function agentCtx(run: RunRequest<unknown>, context = '', model?: ModelChoice): AgentCtx {
-  return { image: run.image, ledger: newLedger(run.provider, model), context };
+  const ledger = newLedger(run.provider, model);
+  ledger.deadline = run.deadline;
+  return { image: run.image, ledger, context };
 }
 
 /** Wat deze ene stap kostte, zodat de browser het totaal kan optellen. */
@@ -91,7 +102,7 @@ export async function json(work: () => Promise<unknown>): Promise<Response> {
   try {
     return Response.json(await work());
   } catch (err) {
-    const status = err instanceof Refusal ? err.status : 500;
+    const status = err instanceof Refusal ? err.status : err instanceof TimeUp ? 504 : 500;
     return Response.json({ error: errorMessage(err) }, { status });
   }
 }
@@ -99,14 +110,21 @@ export async function json(work: () => Promise<unknown>): Promise<Response> {
 /**
  * Een streamende route, als server-sent events over POST. Een fout onderweg komt
  * als `{ type: 'error' }` binnen, want de status is dan al verstuurd.
+ *
+ * Een stream die goed afloopt, eindigt met `{ type: 'end' }`. Breekt Vercel de
+ * functie af, dan komt die nooit, en daaraan ziet de browser dat het antwoord niet
+ * compleet is. De limiet gaat mee in een header, want headers zijn er al voordat
+ * er iets mis kan gaan: zo kan de browser zeggen dat het de tijd van Vercel was
+ * en niet het netwerk.
  */
-export function sse(work: (send: (event: unknown) => void) => Promise<void>): Response {
+export function sse(work: (send: (event: unknown) => void) => Promise<void>, limit?: number): Response {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       const send = (event: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       try {
         await work(send);
+        send({ type: 'end' });
       } catch (err) {
         send({ type: 'error', message: errorMessage(err) });
       } finally {
@@ -118,7 +136,8 @@ export function sse(work: (send: (event: unknown) => void) => Promise<void>): Re
     headers: {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache, no-transform',
-      connection: 'keep-alive'
+      connection: 'keep-alive',
+      ...(limit ? { [LIMIT_HEADER]: String(limit) } : {})
     }
   });
 }

@@ -15,7 +15,7 @@ interface Input {
 /** De beelden van één pagina beoordeeld, met de pagina ernaast. */
 export async function POST(request: Request) {
   return json(async () => {
-    const run = await readRun<Input>(request);
+    const run = await readRun<Input>(request, maxDuration);
     requireKeys(run.provider);
     const ctx = agentCtx(run);
     const verdicts = await triageImages(

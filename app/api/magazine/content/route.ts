@@ -13,7 +13,7 @@ interface Input extends ContentInput {
 /** Hoort wat op deze pagina staat bij het artikel uit de inhoudsopgave? Eén pagina per verzoek. */
 export async function POST(request: Request) {
   return json(async () => {
-    const run = await readRun<Input>(request);
+    const run = await readRun<Input>(request, maxDuration);
     if (!(run.provider === 'mistral' ? env.mistralKey : env.openaiKey)) {
       throw new Refusal(`Ontbrekende sleutel: ${run.provider === 'mistral' ? 'MISTRAL_API_KEY' : 'OPENAI_API_KEY'}`);
     }

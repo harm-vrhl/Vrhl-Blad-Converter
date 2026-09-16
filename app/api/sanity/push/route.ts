@@ -31,7 +31,7 @@ interface Input {
  */
 export async function POST(request: Request) {
   try {
-    const run = await readRun<Input>(request);
+    const run = await readRun<Input>(request, maxDuration);
     const { pakket, assets = {}, images = [], dryRun = false, bare = false } = run.input;
     if (!pakket?.artikelen) return Response.json({ error: 'er zat geen pakket in het verzoek' }, { status: 400 });
     if (!dryRun && !sanityReady()) {

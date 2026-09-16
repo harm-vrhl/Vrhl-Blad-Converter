@@ -12,7 +12,7 @@ export const maxDuration = 300;
  */
 export async function POST(request: Request) {
   return json(async () => {
-    const run = await readRun<PageScanInput>(request);
+    const run = await readRun<PageScanInput>(request, maxDuration);
     // Geen OCR bij het in kaart brengen, dus alleen de sleutel van wie er kijkt.
     if (!(run.provider === 'mistral' ? env.mistralKey : env.openaiKey)) {
       throw new Refusal(`Ontbrekende sleutel: ${run.provider === 'mistral' ? 'MISTRAL_API_KEY' : 'OPENAI_API_KEY'}`);

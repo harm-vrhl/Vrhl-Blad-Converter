@@ -233,7 +233,11 @@ minuten**, **10** verzoeken, sleutel **IP**, Then **Default (429)**, en daarna
 voor zichzelf en staat er bij elke poging een melding in de log.
 
 Op Vercel verder: alle sleutels uit `.env.example` als omgevingsvariabelen. Fluid
-compute staat standaard aan. `prompts.json` gaat via
+compute staat standaard aan, en is nodig: de zware stappen mogen 800 seconden
+duren. Loopt een stap tegen die grens, dan stopt hij zelf net ervoor, en zegt de
+melding dat de tijd van Vercel op was in plaats van alleen dat er iets misging.
+Een build zonder `public/pdf.worker.min.mjs` faalt, want zonder die worker leest
+de app geen PDF in. `prompts.json` gaat via
 `outputFileTracingIncludes` in `next.config.mjs` mee in de functies.
 
 Een tweede build naast een lopende dev-server, zonder elkaars `.next` te raken:

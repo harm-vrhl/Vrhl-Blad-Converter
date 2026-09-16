@@ -17,7 +17,7 @@ interface Input {
  */
 export async function POST(request: Request) {
   return json(async () => {
-    const run = await readRun<Input>(request);
+    const run = await readRun<Input>(request, maxDuration);
     const page = Number(run.input.page);
     const source = await run.file('bron');
     if (!Number.isInteger(page) || page < 1 || !source) throw new Refusal('pagina of bestand ontbreekt');

@@ -13,7 +13,7 @@ interface Input extends BoundaryInput {
 /** Waar eindigt het vorige artikel? Eén overgang per verzoek. */
 export async function POST(request: Request) {
   return json(async () => {
-    const run = await readRun<Input>(request);
+    const run = await readRun<Input>(request, maxDuration);
     if (!(run.provider === 'mistral' ? env.mistralKey : env.openaiKey)) {
       throw new Refusal(`Ontbrekende sleutel: ${run.provider === 'mistral' ? 'MISTRAL_API_KEY' : 'OPENAI_API_KEY'}`);
     }
