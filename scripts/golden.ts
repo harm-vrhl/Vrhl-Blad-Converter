@@ -20,6 +20,8 @@ import { toPackage } from '../lib/canonical';
 import { compileArticle, frameTitlesAsHeadings } from '../lib/compile';
 import { boxOnly, rescueBoxed } from '../lib/imagefilter';
 import { stitch } from '../lib/magazine/stitch';
+import { docxDelen } from '../lib/docx';
+import { toHtml } from '../lib/html';
 import { toMdx } from '../lib/mdx';
 import { groupPictures, type Picture } from '../lib/pictures';
 import type { StoredJob } from '../lib/client/db';
@@ -75,6 +77,16 @@ function article(dir: string): Outputs | null {
     const pakket = attempt(() => toPackage(framed, { images, pages, generatedAt: '2000-01-01T00:00:00.000Z' }));
     out.package = pakket;
     out.mdx = attempt(() => toMdx(pakket as Parameters<typeof toMdx>[0]));
+    // HTML en Word, net als MDX uit het pakket. Het beeld is een pad of een leeg
+    // bestand: wat telt is waar het staat en hoe het is ingepakt, niet de pixels.
+    out.html = attempt(() => toHtml(pakket as Parameters<typeof toHtml>[0], (asset) => asset.bestand ?? null));
+    out.docx = attempt(() =>
+      Object.fromEntries(
+        docxDelen(pakket as Parameters<typeof docxDelen>[0], () => ({ data: new Uint8Array(), mimeType: 'image/jpeg' }), new Date('2000-01-01T00:00:00Z'))
+          .filter((deel) => !deel.path.startsWith('word/media/'))
+          .map((deel) => [deel.path, new TextDecoder().decode(deel.data)])
+      )
+    );
   }
 
   // What the article screen derives while a run streams in: the steps in the

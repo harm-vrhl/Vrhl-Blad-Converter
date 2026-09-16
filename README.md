@@ -404,10 +404,22 @@ tegen een kader aan schuift erin, en het eerste of laatste blok van een kader er
 Een kader kan niet in een ander kader, en een kader dat leeg raakt verdwijnt. De kop
 van een kader is een blok als elk ander: net als in het canonieke formaat heeft een
 kader geen vaste titel, dus ook die kop kun je verplaatsen. *Terug naar AI-resultaat* zet
-alles terug. MDX is alleen nog een export, uit het pakket geschreven zoals een
-Word-adapter dat ook zou doen.
+alles terug.
 
-*Download pakket* levert een ZIP met `pakket.json` en het beeld ernaast. Zo
+Boven het artikel staat **Exporteren**, een menu met vijf downloads, allemaal uit
+datzelfde pakket en met de correcties erin:
+
+| | wat je krijgt |
+|---|---|
+| **JSON** (.json) | het pakket, zonder beeld |
+| **HTML** (.html) | één bestand dat in elke browser opengaat, met het beeld erin |
+| **MDX** (.mdx) | Vrhl-Blad MDX voor de site |
+| **Word** (.docx) | om te bewerken of te delen; koppen, kaders met hun tint, lijsten en beeld |
+| **Pakket** (.zip) | `pakket.json` plus al het beeld |
+
+Daarnaast staat **Sanity**, los van het menu: dat is geen download maar versturen.
+
+Het pakket als ZIP bevat `pakket.json` en het beeld ernaast. Zo
 uitgepakt is het te controleren met de validator van het formaat zelf:
 
 ```bash

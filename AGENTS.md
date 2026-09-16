@@ -227,7 +227,8 @@ lib/client/once.ts    een betaalde stap één keer betalen: bewaren en bij herva
                       lezen. Gedeeld door de artikel-run en de magazine-analyse
 lib/client/post.ts    verzoeken bouwen (runForm, 4,4 MB-grens) en SSE lezen
 lib/client/limiter.ts het tempo: maximum tegelijk, Mistral 1 start per seconde
-lib/client/exports.ts pakket-ZIP in de browser, Sanity in stappen
+lib/client/exports.ts elke download (JSON, HTML, MDX, Word, pakket-ZIP) uit hetzelfde
+                      pakket, in de browser; Sanity in stappen
 lib/server/run.ts     wat elke route deelt: verzoek lezen, kosten, streamen
 app/api/run/          check, ocr, frontmatter, images, page (leesvolgorde), styling (opmaak)
 app/api/magazine/     scan (per pagina), boundary (per overgang)
@@ -244,6 +245,12 @@ lib/zip.ts            pakket.json plus het beeld als ZIP, zonder dependency en
                       zonder compressie, zodat het in de browser draait
 lib/mdx.ts            schrijft MDX, en leest daarvoor het PAKKET, niet het
                       artikelobject: het pakket is de bron, MDX een consument
+lib/html.ts           het artikel als één HTML-bestand, ook een consument van het pakket;
+                      het beeld komt via een functie binnen (data-URL of pad)
+lib/docx.ts           het artikel als Word-document, zonder dependency, op lib/zip.ts.
+                      De volgorde van elementen in de XML ligt vast in het schema
+lib/pakketlezen.ts    wat HTML en Word allebei uit het pakket lezen: tekstdelen,
+                      creditregel, bijschrift, alleen veilige links
 components/BlockDrag.tsx  blokken verslepen in de Artikel-tab, ook een kader in en uit: greep bij hover,
                       pointer-events (geen HTML-drag-and-drop), pijltjes, Escape
 lib/client/edit.ts    leest een correctie uit de Artikel-tab terug naar
@@ -356,7 +363,7 @@ npm run golden
 npm run build
 ```
 
-`npm run golden` rekent compileren, het pakket, MDX, de beeldregels en `stitch`
+`npm run golden` rekent compileren, het pakket, MDX, HTML, Word, de beeldregels en `stitch`
 door op de oude jobs en magazines in `.data/jobs/` en vergelijkt de uitkomst met
 de hashes in `scripts/golden.json`. Het kost geen tokens. Wijkt er iets af, dan
 staat de nieuwe uitkomst in `.data/golden-diff/`. Is dat verschil de bedoeling,
@@ -402,6 +409,13 @@ gecompileerde artikel:
   eindigt met `{ type: 'end' }`; komt die niet, dan zegt `postStream` of het de
   tijd van Vercel was of de verbinding. Vergeet je `maxDuration` door te geven,
   dan werkt alles nog, maar zonder die bescherming.
+- **Een Word-export controleer je zonder Word.** Word zegt alleen "onleesbare
+  inhoud" en niet waarom. Controleer daarom de XML tegen de OOXML-schema's (lxml
+  met `wml.xsd` uit ISO/IEC 29500 transitional), en kijk hoe het eruitziet met
+  `qlmanage -t -s 1400 -o <map> bestand.docx`, dat macOS zelf heeft. `textutil
+  -convert txt` laat zien of een andere lezer de tekst eruit krijgt. Let op: een
+  `\u0000` in een regex moet als escape in de bron staan, niet als echt teken, anders
+  ziet git het bestand als binair.
 - **pdf.js rendert via `requestAnimationFrame`**, en een achtergrondtab bevriest
   dat. Daarom `intent: 'print'` in `lib/client/render.ts`. Haal dat niet weg,
   anders hangt het renderen zodra de gebruiker wegklikt.

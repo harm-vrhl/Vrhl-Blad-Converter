@@ -2,12 +2,12 @@
 
 import { useCallback, useMemo, useState } from "react";
 import type { StoredJob } from "@/lib/client/db";
-import { packageZip, pushToSanity } from "@/lib/client/exports";
+import { exportFile, pushToSanity, type ExportFormaat } from "@/lib/client/exports";
 import { toPackage } from "@/lib/canonical";
 import type { ArticleDocument } from "@/lib/types";
 import { errorMessage } from "@/lib/util";
 
-/** Het afgeronde artikel naar buiten: als pakket, als ZIP en naar Sanity. */
+/** Het afgeronde artikel naar buiten: als download in een van de formaten, en naar Sanity. */
 export function useExports({
   job,
   current,
@@ -17,38 +17,40 @@ export function useExports({
   current: ArticleDocument | null;
   setNotice: (notice: string | null) => void;
 }) {
-  /** Het inpakken van het canonieke pakket leest al het beeld uit de opslag. */
-  const [packing, setPacking] = useState(false);
+  /** Welk formaat er nu gemaakt wordt. HTML, Word en de ZIP lezen al het beeld uit de opslag. */
+  const [exporting, setExporting] = useState<ExportFormaat | null>(null);
   /** Het duwen naar Sanity, dat eerst het beeld één voor één uploadt. */
   const [pushing, setPushing] = useState<{ done: number; total: number } | null>(null);
 
   /**
-   * Het artikel als Vrhl Content Package: pakket.json plus het beeld, in een ZIP.
+   * Het artikel als download: JSON, HTML, MDX, Word of het pakket als ZIP.
    *
    * Wat in de Artikel-tab is rechtgezet gaat mee: het artikel zoals het nu op
-   * het scherm staat, niet zoals de run het achterliet. Het inpakken gebeurt in
-   * de browser, want daar staat het beeld.
+   * het scherm staat, niet zoals de run het achterliet. Het maken gebeurt in de
+   * browser, want daar staat het beeld.
    */
-  const downloadPackage = useCallback(async () => {
-    if (!job || !current) return;
-    setPacking(true);
-    setNotice(null);
-    try {
-      const { blob, name } = await packageZip(job, current);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = name;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setNotice(
-        `Het pakket kon niet worden gemaakt: ${errorMessage(err)}`,
-      );
-    } finally {
-      setPacking(false);
-    }
-  }, [job, current]);
+  const exportAs = useCallback(
+    async (formaat: ExportFormaat) => {
+      if (!job || !current) return;
+      setExporting(formaat);
+      setNotice(null);
+      try {
+        const { blob, name } = await exportFile(job, current, formaat);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        a.click();
+        // Pas later vrijgeven: sommige browsers beginnen de download pas na deze tik.
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      } catch (err) {
+        setNotice(`De export kon niet worden gemaakt: ${errorMessage(err)}`);
+      } finally {
+        setExporting(null);
+      }
+    },
+    [job, current],
+  );
 
   /**
    * Het artikel naar Sanity, als concept.
@@ -99,5 +101,5 @@ export function useExports({
     [pakket],
   );
 
-  return { packing, pushing, downloadPackage, pushSanity, pakket, pakketJson };
+  return { exporting, pushing, exportAs, pushSanity, pakket, pakketJson };
 }

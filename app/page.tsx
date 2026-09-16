@@ -99,7 +99,7 @@ export default function Home() {
   );
 
 
-  const { packing, pushing, downloadPackage, pushSanity, pakket, pakketJson } = useExports({ job, current, setNotice });
+  const { exporting, pushing, exportAs, pushSanity, pakket, pakketJson } = useExports({ job, current, setNotice });
 
   const idle = !job && phase !== "rendering";
   const workspace = !showMagazine && !(idle || (phase === "rendering" && !job));
@@ -213,10 +213,9 @@ export default function Home() {
               <span className="flex-1" />
               {doc ? (
                 <ExportToolbar
-                  pakket={pakket}
-                  pakketJson={pakketJson}
-                  packing={packing}
-                  downloadPackage={downloadPackage}
+                  ready={!!pakket}
+                  exporting={exporting}
+                  exportAs={exportAs}
                   pushing={pushing}
                   pushSanity={pushSanity}
                   settings={settings}
