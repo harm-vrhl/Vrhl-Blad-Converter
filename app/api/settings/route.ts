@@ -13,6 +13,9 @@ export async function GET() {
     ocrPricePerPage: env.ocrPricePerPage,
     currency: env.priceCurrency,
     provider: env.provider,
+    // Zonder keuze kent de interface alleen de aanbieder die schrijft; dan kan
+    // geen terugvalregel in de browser alsnog de andere kiezen.
+    providerChoice: env.providerChoice,
     articleConcurrency: env.articleConcurrency,
     // De browser regelt het tempo van een run, want alleen die ziet alle
     // verzoeken; de server is op Vercel elke keer een andere machine.
@@ -28,7 +31,7 @@ export async function GET() {
         // Only known once Mistral has answered a chat call; null until then.
         limit: mistralLimit()
       }
-    ],
+    ].filter((p) => env.providerChoice || p.id === env.provider),
     // Whether this installation can push to Sanity. The token itself stays here;
     // the interface only learns that one is present, and where it would write.
     sanity: {

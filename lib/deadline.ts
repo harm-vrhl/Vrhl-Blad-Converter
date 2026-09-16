@@ -46,6 +46,8 @@ export class TimeUp extends Error {
   constructor(
     readonly deadline: Deadline,
     readonly kind: 'geen-poging' | 'afgekapt',
+    /** Mag de gebruiker de aanbieder kiezen? Alleen dan is dat een advies. */
+    canSwitch = false,
     now = Date.now()
   ) {
     const seconds = Math.round((now - deadline.started) / 1000);
@@ -55,7 +57,7 @@ export class TimeUp extends Error {
         : `na ${seconds} seconden was er te weinig tijd over voor een nieuwe poging, dus is die niet meer gestart`;
     super(
       `Tijd op: Vercel geeft deze stap hooguit ${deadline.limit} seconden, en ${wat}. ` +
-        'Probeer het opnieuw; lukt het weer niet, kies dan de andere aanbieder.'
+        (canSwitch ? 'Probeer het opnieuw; lukt het weer niet, kies dan de andere aanbieder.' : 'Probeer het opnieuw.')
     );
     this.name = 'TimeUp';
   }

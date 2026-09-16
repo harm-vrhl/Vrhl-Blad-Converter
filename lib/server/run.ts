@@ -42,9 +42,13 @@ export async function readRun<T>(request: Request, limit?: number): Promise<RunR
   } catch {
     throw new Refusal('het verzoek had geen leesbare invoer', 400);
   }
-  const provider: Provider = PROVIDERS.includes(input.provider as Provider)
-    ? (input.provider as Provider)
-    : env.provider;
+  // Staat de keuze uit, dan telt wat de browser meestuurt niet: een tabblad dat
+  // eerder Mistral onthield, of een oud tabblad tijdens een deploy, schrijft dan
+  // toch met AI_PROVIDER. Verbergen in de interface alleen is geen uitzetten.
+  const provider: Provider =
+    env.providerChoice && PROVIDERS.includes(input.provider as Provider)
+      ? (input.provider as Provider)
+      : env.provider;
 
   const file = async (name: string) => {
     const entry = form.get(`file:${name}`);

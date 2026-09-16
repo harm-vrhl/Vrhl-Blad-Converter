@@ -24,6 +24,15 @@ export const env = {
   get provider(): Provider {
     return str('AI_PROVIDER', 'openai') === 'mistral' ? 'mistral' : 'openai';
   },
+  /**
+   * Of de gebruiker zelf de aanbieder mag kiezen. Staat standaard uit: Mistral
+   * Medium 3.5 is voor deze workflow niet goed genoeg, dus schrijft AI_PROVIDER
+   * alles. De keuzeknop en de hele tweede route blijven in de code staan; zet dit
+   * op true en ze zijn terug, zonder één regel te wijzigen.
+   */
+  get providerChoice(): boolean {
+    return str('AI_PROVIDER_CHOICE', 'false') === 'true';
+  },
   get mistralKey() {
     return str('MISTRAL_API_KEY', '');
   },

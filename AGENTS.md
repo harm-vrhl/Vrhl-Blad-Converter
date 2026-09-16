@@ -289,6 +289,29 @@ scripts/golden.ts     het vangnet: rekent de vaste stappen door op .data/jobs en
                       of schrijft hier meer
 ```
 
+## Tijdelijk uitgezet, niet weggehaald
+
+Iets wat nu niet nodig is maar later terug kan komen, haal je niet weg en zet je
+niet in commentaar. Commentaar veroudert zonder dat de typecheck het merkt, en
+verwijderde code komt uit git nooit meer precies terug in een codebase die
+intussen verder is. Zet het uit met een schakelaar:
+
+1. een getter in `lib/env.ts` die standaard **uit** staat, met in het commentaar
+   waarom;
+2. de stand mee in `/api/settings`, zodat de interface het onderdeel niet toont;
+3. **de server dwingt het af.** Verbergen alleen is geen uitzetten: een tabblad
+   met een onthouden keuze, of een oud tabblad tijdens een deploy, stuurt hem
+   gewoon nog mee;
+4. meldingen die naar het onderdeel verwijzen ("kies de andere aanbieder") alleen
+   als het aan staat;
+5. de variabele in `.env.example`, met hoe je hem terugzet.
+
+Nu uitgezet:
+
+| variabele | standaard | wat | waarom |
+|---|---|---|---|
+| `AI_PROVIDER_CHOICE` | `false` | de keuze tussen OpenAI en Mistral per run | Mistral Medium 3.5 is niet goed genoeg voor deze workflow; `AI_PROVIDER` schrijft alles. De server negeert wat de browser vraagt (`readRun`). De onthouden keuze in de browser blijft bewaard en telt weer zodra dit aan staat. |
+
 ## Prompts wijzigen
 
 Prompts staan in `prompts.json`, met per run `titel`, `wanneer`, `krijgt`,
@@ -391,8 +414,9 @@ gecompileerde artikel:
 - **Het model heet `gpt-5.6-terra`.** "medium" is de reasoning-effort, een aparte
   parameter, geen deel van de model-id. Een `model_not_found` wordt apart
   afgevangen en niet opnieuw geprobeerd.
-- **Twee providers, één client.** Wie het artikel schrijft kiest de gebruiker
-  per run (OpenAI of Mistral); Mistral doet altijd de OCR. De provider reist mee
+- **Twee providers, één client.** Wie het artikel schrijft is `AI_PROVIDER`;
+  de keuze per run in de interface staat uit (`AI_PROVIDER_CHOICE`, zie "Tijdelijk
+  uitgezet"). Mistral doet altijd de OCR. De provider reist mee
   op de `Ledger`, omdat de prijs per token ervan afhangt, dus agents hoeven hem
   niet te kennen. Voeg nooit een providerspecifieke aanroep toe in een agent.
 - **Mistral weigert velden die het niet kent.** Stuur alleen wat in hun eigen

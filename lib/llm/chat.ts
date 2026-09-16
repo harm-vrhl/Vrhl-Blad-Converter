@@ -219,7 +219,7 @@ async function withRetries<T>(
     // Geen poging beginnen die Vercel toch afbreekt: die kost wel tokens.
     if (ledger?.deadline && timeLeft(ledger.deadline) < MIN_ATTEMPT_MS) {
       ledger.failures++;
-      throw new TimeUp(ledger.deadline, 'geen-poging');
+      throw new TimeUp(ledger.deadline, 'geen-poging', env.providerChoice);
     }
     const surface = surfaceFor(provider);
     try {
@@ -338,7 +338,7 @@ async function callOnce(
     account(usageOf(body, surface), opts.ledger);
     return extract(body, surface, Boolean(json));
   } catch (err) {
-    if (cutByDeadline && deadline && !(err instanceof TimeUp)) throw new TimeUp(deadline, 'afgekapt');
+    if (cutByDeadline && deadline && !(err instanceof TimeUp)) throw new TimeUp(deadline, 'afgekapt', env.providerChoice);
     throw err;
   } finally {
     clearTimeout(timer);
@@ -349,7 +349,7 @@ function zeroLimit(model: string): Failure {
   const err = new Error(
     `Mistral staat voor deze key op 0 chat-requests per minuut voor ${model} ` +
       `(x-ratelimit-limit-req-minute: 0). Zet een limiet voor dit model aan op ` +
-      `admin.mistral.ai/plateforme/limits, of kies OpenAI.`
+      `admin.mistral.ai/plateforme/limits${env.providerChoice ? ', of kies OpenAI' : ''}.`
   ) as Failure;
   err.fatal = true;
   err.status = 429;

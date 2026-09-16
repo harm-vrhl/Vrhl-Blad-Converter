@@ -115,7 +115,8 @@ export function AppHeader({
               )}
             </>
           ) : null}
-          {settings ? (
+          {/* Uitgezet met AI_PROVIDER_CHOICE, niet weggehaald. */}
+          {settings?.providerChoice ? (
             <ProviderSwitch
               providers={settings.providers}
               value={provider}

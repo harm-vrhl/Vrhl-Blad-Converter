@@ -30,8 +30,11 @@ export function runForm(input: object, files: Record<string, Blob> = {}, what = 
   return form;
 }
 
-/** Wat er te doen is als de tijd op was: dezelfde raad, waar de melding ook vandaan kwam. */
-const RAAD = 'Probeer het opnieuw; lukt het weer niet, kies dan de andere aanbieder.';
+/**
+ * Wat er te doen is als de tijd op was. Geen "kies de andere aanbieder": of die
+ * keuze er is, weet alleen de server, en zijn eigen melding zegt het dan al.
+ */
+const RAAD = 'Probeer het opnieuw.';
 
 async function failure(res: Response): Promise<Error> {
   if (res.status === 401) return new Error('Je bent niet (meer) ingelogd. Herlaad de pagina en log opnieuw in.');

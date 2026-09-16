@@ -48,7 +48,9 @@ als een **job**. Er gaat nog niets naar de server.
 
 ### Stap 2. Convert: de run (`runArticle` in `lib/client/run.ts`)
 
-Je kiest de provider (OpenAI of Mistral) en klikt op *Convert*. De browser regelt
+Je klikt op *Convert*. Het artikel wordt geschreven door de aanbieder uit
+`AI_PROVIDER`; de keuze per run tussen OpenAI en Mistral staat uit
+(`AI_PROVIDER_CHOICE=true` zet hem terug). De browser regelt
 de run: elke stap is een eigen kort verzoek aan de server, met alleen wat die stap
 nodig heeft. Wat terugkomt, verschijnt meteen op het scherm en wordt bewaard.
 

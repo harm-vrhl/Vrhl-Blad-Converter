@@ -8,6 +8,8 @@ export interface Settings {
   ocrPricePerPage: number;
   currency: string;
   provider: Provider;
+  /** Of de gebruiker de aanbieder mag kiezen (AI_PROVIDER_CHOICE). Zo niet, dan geldt `provider`. */
+  providerChoice?: boolean;
   providers: Array<{ id: Provider; label: string; model: string; ready: boolean; limit: number | null }>;
   /** Hoeveel artikelen uit een magazine tegelijk worden omgezet. */
   articleConcurrency?: number;
@@ -37,6 +39,9 @@ export function useSettings() {
           remembered = null;
         }
         const usable = body.providers.filter((p) => p.ready && p.limit !== 0).map((p) => p.id);
+        // Zonder keuze telt de onthouden voorkeur niet, maar hij blijft bewaard:
+        // gaat de keuze weer aan, dan is hij er meteen weer.
+        if (!body.providerChoice) remembered = null;
         const pick = [remembered, body.provider].find(
           (id): id is Provider => !!id && usable.includes(id as Provider),
         );
