@@ -1,7 +1,8 @@
 import { writeStructure } from '@/lib/agents/structure';
 import { textOf } from '@/lib/pagemarkup';
 import { agentCtx, readRun, requireKeys, sse, usageOf } from '@/lib/server/run';
-import type { ExtractedImage } from '@/lib/types';
+import type { ExtractedImage, IndexCheck } from '@/lib/types';
+import { tokens } from '@/lib/util';
 import { buildIndex, checkAgainstIndex } from '@/lib/wordindex';
 
 export const runtime = 'nodejs';
@@ -11,6 +12,13 @@ export const maxDuration = 800;
 
 /** Meer woorden buiten de index dan dit, en de leesvolgorde-run krijgt één tweede poging. */
 const UNKNOWN_LIMIT = 5;
+/**
+ * Zoveel van de eerste poging moet een herkansing minstens opschrijven om te
+ * mogen winnen. Een tweede poging die de helft van de pagina weglaat haalt de
+ * telling makkelijk, en is toch slechter: tekst kwijtraken is erger dan een
+ * handvol vreemde woorden, want dat zie je in de controle niet terug.
+ */
+const KEEP_AT_LEAST = 0.9;
 
 interface Input {
   page: number;
@@ -54,14 +62,37 @@ export async function POST(request: Request) {
         page,
         detail: `${check.unknown.length} woorden buiten de index, tweede poging`
       });
-      const retry = await writeStructure(ctx, page, image, markdown, images, boxOnly, previousTail, () => undefined);
-      const retryCheck = checkAgainstIndex(index, textOf(retry.blocks));
-      if (retryCheck.unknown.length < check.unknown.length) {
+      // Met de afgekeurde woorden erbij, anders is dit dezelfde prompt nog een
+      // keer en een hoop.
+      const retry = await writeStructure(
+        ctx,
+        page,
+        image,
+        markdown,
+        images,
+        boxOnly,
+        previousTail,
+        () => undefined,
+        check
+      );
+      const retryText = textOf(retry.blocks);
+      const retryCheck = checkAgainstIndex(index, retryText);
+      const won = better({ check: retryCheck, text: retryText }, { check, text: textOf(result.blocks) });
+      if (won) {
         result = retry;
         check = retryCheck;
         send({ type: 'delta', page, text: '\f' }); // form feed: de interface begint opnieuw
         send({ type: 'delta', page, text: retry.raw });
       }
+      send({
+        type: 'status',
+        run: 'leesvolgorde',
+        state: 'ok',
+        page,
+        detail: won
+          ? `tweede poging aangehouden: ${retryCheck.unknown.length} woorden buiten de index`
+          : `tweede poging was niet beter (${retryCheck.unknown.length} buiten de index), de eerste blijft staan`
+      });
     }
 
     send({
@@ -73,4 +104,25 @@ export async function POST(request: Request) {
       usage: usageOf([ctx.ledger])
     });
   });
+}
+
+interface Attempt {
+  check: IndexCheck;
+  text: string;
+}
+
+/**
+ * Wint de herkansing van de eerste poging?
+ *
+ * Minder verzonnen woorden wint. Bij een gelijk aantal wint de minste
+ * dubbeling, want dat is de andere manier waarop een pagina misgaat. En een
+ * poging die flink minder van de pagina opschrijft wint nooit, hoe schoon de
+ * telling ook is.
+ */
+function better(retry: Attempt, first: Attempt): boolean {
+  if (tokens(retry.text).length < tokens(first.text).length * KEEP_AT_LEAST) return false;
+  if (retry.check.unknown.length !== first.check.unknown.length) {
+    return retry.check.unknown.length < first.check.unknown.length;
+  }
+  return retry.check.overused.length < first.check.overused.length;
 }

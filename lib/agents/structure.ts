@@ -1,7 +1,7 @@
 import { askText } from '../llm/chat';
 import { parsePage } from '../pagemarkup';
 import { promptFor } from '../prompts';
-import type { Block, Continuity, ExtractedImage } from '../types';
+import type { Block, Continuity, ExtractedImage, IndexCheck } from '../types';
 import { AgentCtx, pageImageUrl } from './common';
 
 export interface StructureResult {
@@ -11,10 +11,9 @@ export interface StructureResult {
 }
 
 /**
- * The reading-order run. The only run that writes. It reads the page, decides where the
- * reader starts, and writes the whole page out in that order, inserts, quotes,
- * streamers and images in their place. Nothing else happens on this page until
- * it is finished.
+ * The reading-order run. The only run that writes. It reads the page, decides
+ * where the reader starts, and writes the whole page out in that order, inserts,
+ * quotes, streamers and images in their place.
  *
  * It streams, because this is the output the user watches appear.
  */
@@ -26,7 +25,9 @@ export async function writeStructure(
   available: ExtractedImage[],
   boxOnly: ExtractedImage[],
   previousTail: string,
-  onDelta: (text: string) => void
+  onDelta: (text: string) => void,
+  /** Wat de woordindex van de vorige poging afkeurde, bij een herkansing. */
+  previous?: IndexCheck
 ): Promise<StructureResult> {
   const prompt = promptFor('structure');
 
@@ -37,7 +38,7 @@ export async function writeStructure(
     instructions: prompt.instructions,
     effort: prompt.effort,
     maxOutputTokens: prompt.maxOutputTokens,
-    input: `Page ${page}.
+    input: `${previous ? `${feedback(previous)}\n\n` : ''}Page ${page}.
 ${previousTail ? `The previous page ended with: "${previousTail}"` : 'This is the first page of the article.'}
 ${ctx.context ? `\nWhat is already known about this article:\n${ctx.context}` : ''}
 
@@ -60,6 +61,34 @@ ${ocr}`,
   });
 
   return { ...parsePage(page, raw, available, boxOnly), raw };
+}
+
+/**
+ * Wat de woordindex in de eerste poging ving, teruggegeven aan de tweede.
+ *
+ * Zonder dit is een herkansing twee keer dezelfde prompt en een hoop: het model
+ * hoort nooit welke woorden het op de pagina zette die er niet staan. Nu wel, bij
+ * naam, zodat de tweede poging iets te corrigeren heeft in plaats van opnieuw te
+ * gokken. De woorden komen uit de index, niet uit een model.
+ */
+function feedback(previous: IndexCheck): string {
+  const parts = ['THIS IS A SECOND ATTEMPT. Your first attempt did not keep to the words on the page.'];
+  if (previous.unknown.length) {
+    parts.push(
+      '',
+      'You wrote the words below and the OCR of this page holds none of them. You invented, corrected, translated or completed them. Do not write them again:',
+      previous.unknown.map((word) => `  ${word}`).join('\n')
+    );
+  }
+  if (previous.overused.length) {
+    parts.push(
+      '',
+      'You used the words below more often than the page prints them, which means you wrote a passage of the page twice. Every part of the page goes in once:',
+      previous.overused.map((o) => `  ${o.word}: you wrote it ${o.used}x, the page holds it ${o.available}x`).join('\n')
+    );
+  }
+  parts.push('', 'Write the page out again, copying the words exactly as the OCR below gives them.');
+  return parts.join('\n');
 }
 
 function listed(img: ExtractedImage): string {
