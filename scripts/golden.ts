@@ -18,6 +18,7 @@ import { workflowSteps, type StatusLine } from '../components/article/steps';
 import { pageLabel, pageRange, summarizeSkipped } from '../components/magazine/labels';
 import { toPackage } from '../lib/canonical';
 import { compileArticle, frameTitlesAsHeadings } from '../lib/compile';
+import { controleer, oordeel } from '../lib/controle';
 import { boxOnly, rescueBoxed } from '../lib/imagefilter';
 import { stitch } from '../lib/magazine/stitch';
 import { docxDelen } from '../lib/docx';
@@ -25,7 +26,7 @@ import { toHtml } from '../lib/html';
 import { toMdx } from '../lib/mdx';
 import { groupPictures, type Picture } from '../lib/pictures';
 import type { StoredJob } from '../lib/client/db';
-import type { ExtractedImage, Frontmatter, ImageVerdict, PageResult } from '../lib/types';
+import type { ExtractedImage, Frontmatter, ImageVerdict, OcrPage, PageResult } from '../lib/types';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const JOBS = path.join(ROOT, '.data/jobs');
@@ -80,6 +81,21 @@ function article(dir: string): Outputs | null {
     // HTML en Word, net als MDX uit het pakket. Het beeld is een pad of een leeg
     // bestand: wat telt is waar het staat en hoe het is ingepakt, niet de pixels.
     out.html = attempt(() => toHtml(pakket as Parameters<typeof toHtml>[0], (asset) => asset.bestand ?? null));
+    // Wat de Controle-tab zou melden, en het oordeel. Geen tekst van het artikel,
+    // alleen wat er gemeld wordt en hoe erg: dat is wat niet ongemerkt mag verschuiven.
+    out.controle = attempt(() => {
+      const bevindingen = controleer({
+        document: framed,
+        pages,
+        ocr: read<OcrPage[]>(dir, 'ocr.json') ?? [],
+        images,
+        verdicts
+      });
+      return {
+        oordeel: oordeel(bevindingen, new Set()),
+        bevindingen: bevindingen.map((b) => [b.ernst, b.soort, b.pagina, b.id])
+      };
+    });
     out.docx = attempt(() =>
       Object.fromEntries(
         docxDelen(pakket as Parameters<typeof docxDelen>[0], () => ({ data: new Uint8Array(), mimeType: 'image/jpeg' }), new Date('2000-01-01T00:00:00Z'))

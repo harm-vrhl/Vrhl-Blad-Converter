@@ -119,8 +119,11 @@ platte `content`-lijst.
   corrigeren, blokken te verslepen met de greep links van elk blok, ook een kader
   in en uit, met een knop
   terug naar het AI-resultaat), *JSON* (de canonieke
-  `pakket.json`, alleen-lezen), *Controle* (woorddekking per pagina, het beeld uit
-  de PDF als thumbnails in vier groepen, opmaak per fragment, waarschuwingen).
+  `pakket.json`, alleen-lezen), *Controle* (één oordeel bovenaan, daaronder wat
+  moet opgelost en wat nagekeken moet worden, met de zin uit het artikel naast de
+  regel uit de PDF; afvinken met *Klopt zo*, *Naar de plek* springt naar de tekst.
+  Dekking per pagina, het beeld uit de PDF en technische meldingen staan ingeklapt
+  onder *Ter informatie*).
 - **Pakket**: het artikel als **Vrhl Content Package** (`toPackage`, `pakket.json`
   plus beeld in een ZIP). MDX is alleen nog een export, uit dat pakket geschreven (`toMdx`).
 - **Vrhl-Blad-Studio** (Sanity eronder): het pakket gaat als **concept** naar het CMS, nooit live.

@@ -10,7 +10,9 @@ import { useArticleRun, type Tab } from "@/components/article/useArticleRun";
 import { useExports } from "@/components/article/useExports";
 import { useSettings } from "@/components/article/useSettings";
 import { useSidebar } from "@/components/article/useSidebar";
-import { STUDIO_GELUKT } from "@/lib/studio";
+import { STUDIO, STUDIO_GELUKT } from "@/lib/studio";
+import { useControle } from "@/components/article/useControle";
+import { naarPlek } from "@/components/article/naarPlek";
 import { WorkflowSidebar } from "@/components/article/WorkflowSidebar";
 import { Checks } from "@/components/Checks";
 import { MagazineView } from "@/components/MagazineView";
@@ -18,6 +20,14 @@ import { PageThumbs } from "@/components/PageThumbs";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function Home() {
   /** Even "Gekopieerd" naast de JSON, daarna weer de knop. */
@@ -101,6 +111,31 @@ export default function Home() {
 
 
   const { exporting, pushing, exportAs, pushSanity, pakket, pakketJson } = useExports({ job, current, setNotice });
+  const controle = useControle({ job, current, pageResults, verdicts });
+  /** Het vangnet voor Vrhl-Blad-Studio: open als er nog iets openstaat in de Controle-tab. */
+  const [vangnet, setVangnet] = useState(false);
+  const open = controle.oordeel.oplossen + controle.oordeel.nakijken;
+
+  /**
+   * Naar Vrhl-Blad-Studio, maar niet ongemerkt met een artikel waar nog iets aan
+   * schort. Downloads vragen dit niet: die zijn niet definitief, versturen naar het
+   * CMS wel een stap verder.
+   */
+  const verstuur = async () => {
+    if (controle.oordeel.stand !== "klaar") {
+      setVangnet(true);
+      return;
+    }
+    await pushSanity();
+  };
+
+  const springNaar = async (zoek: string) => {
+    setTab("artikel");
+    const gevonden = await naarPlek(zoek);
+    if (!gevonden) {
+      setNotice("Deze plek is niet meer te vinden in het artikel. Misschien is de tekst al aangepast.");
+    }
+  };
 
   const idle = !job && phase !== "rendering";
   const workspace = !showMagazine && !(idle || (phase === "rendering" && !job));
@@ -206,7 +241,15 @@ export default function Home() {
                 options={(["paginas", "artikel", "json", "checks"] as Tab[]).map(
                   (t) => ({
                     id: t,
-                    label: LABELS[t],
+                    label:
+                      t === "checks" && doc ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          {LABELS[t]}
+                          <TellerControle stand={controle.oordeel.stand} open={open} />
+                        </span>
+                      ) : (
+                        LABELS[t]
+                      ),
                     disabled: ALWAYS.includes(t) ? false : !doc,
                   }),
                 )}
@@ -218,7 +261,7 @@ export default function Home() {
                   exporting={exporting}
                   exportAs={exportAs}
                   pushing={pushing}
-                  pushSanity={pushSanity}
+                  pushSanity={verstuur}
                   settings={settings}
                 />
               ) : null}
@@ -310,8 +353,47 @@ export default function Home() {
               pages={pageResults}
               images={job?.images ?? []}
               verdicts={verdicts}
+              bevindingen={controle.bevindingen}
+              oordeel={controle.oordeel}
+              nagekeken={controle.nagekeken}
+              ocrBeschikbaar={controle.ocrBeschikbaar}
+              onToggle={controle.toggle}
+              onNaarPlek={(zoek) => void springNaar(zoek)}
             />
           ) : null}
+
+          <Dialog open={vangnet} onOpenChange={setVangnet}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>
+                  {controle.oordeel.stand === "oplossen" ? "Dit artikel is nog niet klaar" : "Nog niet alles is nagekeken"}
+                </DialogTitle>
+                <DialogDescription>
+                  {vangnetTekst(controle.oordeel, controle.bevindingen.find((b) => b.ernst !== "info" && !controle.nagekeken.has(b.id))?.titel)}
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setVangnet(false);
+                    void pushSanity();
+                  }}
+                >
+                  Toch als concept versturen
+                </Button>
+                <Button
+                  variant="brand"
+                  onClick={() => {
+                    setVangnet(false);
+                    setTab("checks");
+                  }}
+                >
+                  Naar Controle
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           </div>
         </div>
       )}
@@ -320,6 +402,36 @@ export default function Home() {
 }
 
 
+
+/** Hoeveel er nog openstaat, in de kleur van het oordeel, naast het tabblad Controle. */
+function TellerControle({ stand, open }: { stand: "oplossen" | "nakijken" | "klaar"; open: number }) {
+  if (stand === "klaar") {
+    return <span aria-label="alles in orde" className="size-1.5 rounded-full bg-emerald-500" />;
+  }
+  return (
+    <span
+      className={
+        stand === "oplossen"
+          ? "rounded-full bg-destructive/15 px-1.5 text-[11px] leading-4 font-medium tabular-nums text-destructive"
+          : "rounded-full bg-amber-100 px-1.5 text-[11px] leading-4 font-medium tabular-nums text-amber-900"
+      }
+    >
+      {open}
+    </span>
+  );
+}
+
+function vangnetTekst(oordeel: { oplossen: number; nakijken: number }, eerste: string | undefined): string {
+  const delen = [
+    oordeel.oplossen ? `${oordeel.oplossen} punt${oordeel.oplossen === 1 ? "" : "en"} moet${oordeel.oplossen === 1 ? "" : "en"} opgelost` : null,
+    oordeel.nakijken ? `${oordeel.nakijken} punt${oordeel.nakijken === 1 ? "" : "en"} om na te kijken` : null,
+  ].filter(Boolean);
+  return (
+    `In de Controle-tab staat nog ${delen.join(" en ")}` +
+    (eerste ? `, zoals: ${eerste}.` : ".") +
+    ` Het gaat als concept naar ${STUDIO}, dus er staat nog niets live.`
+  );
+}
 
 /** Tabs that show something of their own, run or no run. */
 const ALWAYS: Tab[] = ["paginas", "artikel", "checks"];

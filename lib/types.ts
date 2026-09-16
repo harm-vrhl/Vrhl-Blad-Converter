@@ -190,6 +190,14 @@ export interface PageResult {
   continuity: Continuity;
   check: IndexCheck;
   warnings: string[];
+  /**
+   * Waarom deze pagina niet gelukt is, als hij niet gelukt is. Een lege pagina is
+   * niet vanzelf mislukt: een paginagrote foto heeft ook geen blokken. Zonder dit
+   * veld moest de Controle-tab dat raden uit de tekst van een waarschuwing, en
+   * een afgekapte pagina zag er dan precies zo uit als een fotopagina. Oude jobs
+   * hebben het veld niet; `lib/controle.ts` valt daar terug op de waarschuwing.
+   */
+  failed?: string;
 }
 
 // ─── Article ─────────────────────────────────────────────────────────────────

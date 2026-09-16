@@ -1,137 +1,362 @@
 'use client';
 
+import { AlertOctagon, AlertTriangle, CheckCircle2, ChevronRight, Info, LocateFixed, RotateCcw } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { cn } from 'cn';
 import { StoredImage, useStoredUrl } from '@/components/StoredImage';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import type { Bevinding, Fragment as Bewijs, Oordeel } from '@/lib/controle';
 import { groupPictures, type Picture } from '@/lib/pictures';
 import type { ExtractedImage, ImageVerdict, PageResult, Patch } from '@/lib/types';
 
 /**
- * The word index is the only judge here: it knows which words the page holds.
- * Unknown words are inventions; overused words point at duplicated text.
+ * De Controle-tab: één oordeel bovenaan, en daaronder wat er moet gebeuren, op
+ * volgorde van ernst.
+ *
+ * Wat hier staat, rekent `lib/controle.ts` uit; dit tekent het alleen. Elk punt
+ * zegt wat er is, waarom het ertoe doet, en laat het bewijs zien: de zin uit het
+ * artikel naast de regel uit de PDF. Wie het heeft bekeken, vinkt het af; het
+ * oordeel telt mee. De getallen per pagina, het beeldoverzicht en de technische
+ * meldingen staan onderaan, ingeklapt: goed om te kunnen vinden, niet om elke keer
+ * door te lezen.
  */
 export function Checks({
   owner,
   pages,
   images,
-  verdicts
+  verdicts,
+  bevindingen,
+  oordeel,
+  nagekeken,
+  ocrBeschikbaar,
+  onToggle,
+  onNaarPlek
 }: {
   /** De job waar de beelden bij horen, om ze uit de opslag te halen. */
   owner: string | null | undefined;
   pages: PageResult[];
   images: ExtractedImage[];
   verdicts: ImageVerdict[];
+  bevindingen: Bevinding[];
+  oordeel: Oordeel;
+  nagekeken: ReadonlySet<string>;
+  ocrBeschikbaar: boolean | null;
+  onToggle: (id: string) => void;
+  onNaarPlek: (zoek: string) => void;
 }) {
   // The ripped bitmaps exist as soon as the PDF is read, before any run.
   if (!pages.length && !images.length) return null;
 
+  const oplossen = bevindingen.filter((b) => b.ernst === 'oplossen');
+  const nakijken = bevindingen.filter((b) => b.ernst === 'nakijken');
+  const info = bevindingen.filter((b) => b.ernst === 'info');
+  const beeldVan = new Map(images.map((image) => [image.id, image]));
+  const kaart = (b: Bevinding) => (
+    <Kaart
+      key={b.id}
+      b={b}
+      af={nagekeken.has(b.id)}
+      owner={owner}
+      beeld={b.beeld ? beeldVan.get(b.beeld) : undefined}
+      onToggle={onToggle}
+      onNaarPlek={onNaarPlek}
+    />
+  );
+
   return (
-    <div className="grid max-w-3xl gap-3">
-      {pages.length ? (
-        <section className="rounded-xl bg-black/[0.04] px-4 py-3">
-          <h3 className="text-sm font-medium">Per pagina</h3>
-          <ul className="mt-2 divide-y divide-black/[0.06]">
-            {pages.map((page) => (
-              <li key={page.page} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-2.5 text-sm">
-                <span className="w-24 shrink-0 text-muted-foreground">Pagina {page.page}</span>
-                <span className="w-12 shrink-0 tabular-nums">{Math.round(page.check.score * 100)}%</span>
-                <span className="min-w-0 flex-1 text-muted-foreground">
-                  {page.blocks.length} alinea&apos;s · {tally(page.patches)} ·{' '}
-                  {page.continuity.continuesFromPrevious ? 'loopt door van vorige' : 'nieuwe start'} ·{' '}
-                  {page.continuity.continuesOnNext ? 'loopt door' : 'sluit af'}
-                </span>
-                <Badge
-                  variant={page.typography === 'read' ? 'secondary' : 'destructive'}
-                  className="border-0"
-                >
-                  {WAARVANDAAN[page.typography ?? 'onbekend']}
-                </Badge>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-1 pb-1 text-sm text-muted-foreground">{herkomst(pages)}</p>
-        </section>
+    <div className="grid max-w-3xl gap-6">
+      <OordeelBalk oordeel={oordeel} totaal={oplossen.length + nakijken.length} />
+
+      {ocrBeschikbaar === false ? (
+        <p className="-mt-3 text-sm text-muted-foreground">
+          De OCR van dit artikel is niet bewaard. Ontbrekende tekst, woorden die niet in de PDF staan en de kop zijn
+          daarom niet gecontroleerd.
+        </p>
       ) : null}
 
-      {images.length ? <Pictures owner={owner} images={images} verdicts={verdicts} pages={pages} /> : null}
-
-      {pages.some((p) => p.patches.length) ? (
-        <section className="rounded-xl bg-black/[0.04] px-4 py-3">
-          <h3 className="text-sm font-medium">Opmaak per fragment</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{overall(pages)}</p>
-          <ul className="mt-2 divide-y divide-black/[0.06]">
-            {pages.flatMap((page) =>
-              page.patches.map((patch, i) => {
-                const dropped = page.dropped.includes(i);
-                return (
-                  <li
-                    key={`${page.page}-${i}`}
-                    className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 py-2.5 text-sm ${dropped ? 'opacity-50' : ''}`}
-                  >
-                    <span className="w-24 shrink-0 text-muted-foreground">
-                      p{page.page} {patch.target}
-                    </span>
-                    <span className="w-24 shrink-0">{patch.style.join('+')}</span>
-                    <span className={`min-w-0 flex-1 ${dropped ? 'text-muted-foreground line-through' : 'text-muted-foreground'}`}>
-                      &ldquo;{clip(patch.find)}&rdquo;
-                      {dropped ? ' · niet toegepast' : ''}
-                    </span>
-                  </li>
-                );
-              })
-            )}
-          </ul>
-        </section>
+      {oplossen.length ? (
+        <Groep icoon={<AlertOctagon className="size-4 text-destructive" />} titel="Moet opgelost">
+          {oplossen.map(kaart)}
+        </Groep>
       ) : null}
 
-      {pages.some((p) => p.check.unknown.length) ? (
-        <section className="rounded-xl bg-black/[0.04] px-4 py-3">
-          <h3 className="text-sm font-medium">Woorden buiten de OCR-index</h3>
-          <ul className="mt-2 grid gap-2">
-            {pages
-              .filter((p) => p.check.unknown.length)
-              .map((p) => (
-                <li key={p.page} className="text-sm text-muted-foreground">
-                  <span className="mr-2 font-medium text-foreground">p{p.page}</span>
-                  {p.check.unknown.join(' · ')}
-                </li>
-              ))}
-          </ul>
-        </section>
+      {nakijken.length ? (
+        <Groep icoon={<AlertTriangle className="size-4 text-amber-600" />} titel="Nakijken">
+          {nakijken.map(kaart)}
+        </Groep>
       ) : null}
 
-      {pages.some((p) => p.check.overused.length) ? (
-        <section className="rounded-xl bg-black/[0.04] px-4 py-3">
-          <h3 className="text-sm font-medium">Vaker gebruikt dan de pagina bevat</h3>
-          <ul className="mt-2 grid gap-2">
-            {pages
-              .filter((p) => p.check.overused.length)
-              .map((p) => (
-                <li key={p.page} className="text-sm text-muted-foreground">
-                  <span className="mr-2 font-medium text-foreground">p{p.page}</span>
-                  {p.check.overused.map((o) => `${o.word} ${o.used}/${o.available}`).join(' · ')}
-                </li>
-              ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {pages.some((p) => p.warnings.length) ? (
-        <section className="rounded-xl bg-black/[0.04] px-4 py-3">
-          <h3 className="text-sm font-medium">Waarschuwingen</h3>
-          <ul className="mt-2 grid gap-2">
-            {pages.flatMap((p) =>
-              p.warnings.map((w, i) => (
-                <li key={`${p.page}-${i}`} className="text-sm text-muted-foreground">
-                  <span className="mr-2 font-medium text-foreground">p{p.page}</span>
-                  {w}
-                </li>
-              ))
-            )}
-          </ul>
-        </section>
-      ) : null}
+      <Collapsible>
+        <CollapsibleTrigger className="group flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+          <ChevronRight className="size-4 transition-transform group-data-[state=open]:rotate-90" />
+          <Info className="size-4" />
+          Ter informatie
+          <span className="font-normal">
+            · dekking per pagina, beeld uit de PDF{info.length ? `, ${info.length} melding${info.length === 1 ? '' : 'en'}` : ''}
+          </span>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-3 grid gap-3">
+          {info.length ? <ul className="grid gap-2">{info.map(kaart)}</ul> : null}
+          <PerPagina pages={pages} />
+          {images.length ? <Pictures owner={owner} images={images} verdicts={verdicts} pages={pages} /> : null}
+          <Opmaak pages={pages} />
+        </CollapsibleContent>
+      </Collapsible>
     </div>
+  );
+}
+
+// ─── Oordeel ─────────────────────────────────────────────────────────────────
+
+function OordeelBalk({ oordeel, totaal }: { oordeel: Oordeel; totaal: number }) {
+  const open = oordeel.oplossen + oordeel.nakijken;
+  const stand = {
+    oplossen: {
+      klasse: 'bg-destructive/10 text-destructive',
+      icoon: <AlertOctagon className="size-5 shrink-0" />,
+      titel: 'Nog niet versturen'
+    },
+    nakijken: {
+      klasse: 'bg-amber-50 text-amber-900 ring-1 ring-amber-200/60',
+      icoon: <AlertTriangle className="size-5 shrink-0 text-amber-600" />,
+      titel: 'Nakijken'
+    },
+    klaar: {
+      klasse: 'bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200/60',
+      icoon: <CheckCircle2 className="size-5 shrink-0 text-emerald-600" />,
+      titel: 'Klaar om te versturen'
+    }
+  }[oordeel.stand];
+
+  const regel =
+    oordeel.stand === 'klaar'
+      ? totaal
+        ? 'Alles is nagekeken.'
+        : 'Er is niets gevonden dat nagekeken moet worden.'
+      : [
+          oordeel.oplossen ? `${oordeel.oplossen} punt${oordeel.oplossen === 1 ? '' : 'en'} moet${oordeel.oplossen === 1 ? '' : 'en'} opgelost` : null,
+          oordeel.nakijken ? `${oordeel.nakijken} punt${oordeel.nakijken === 1 ? '' : 'en'} om na te kijken` : null
+        ]
+          .filter(Boolean)
+          .join(', ') + (open < totaal ? ` (${totaal - open} al nagekeken)` : '') + '.';
+
+  return (
+    <div className={cn('flex items-center gap-3 rounded-xl px-4 py-3', stand.klasse)} role="status">
+      {stand.icoon}
+      <div>
+        <p className="text-sm font-medium">{stand.titel}</p>
+        <p className="text-sm opacity-90">{regel}</p>
+      </div>
+    </div>
+  );
+}
+
+function Groep({ icoon, titel, children }: { icoon: ReactNode; titel: string; children: ReactNode }) {
+  return (
+    <section>
+      <h3 className="mb-2 flex items-center gap-2 text-sm font-medium">
+        {icoon}
+        {titel}
+      </h3>
+      <ul className="grid gap-2">{children}</ul>
+    </section>
+  );
+}
+
+// ─── Een punt ────────────────────────────────────────────────────────────────
+
+function Kaart({
+  b,
+  af,
+  owner,
+  beeld,
+  onToggle,
+  onNaarPlek
+}: {
+  b: Bevinding;
+  af: boolean;
+  owner: string | null | undefined;
+  beeld: ExtractedImage | undefined;
+  onToggle: (id: string) => void;
+  onNaarPlek: (zoek: string) => void;
+}) {
+  const knop = af ? 'Ongedaan maken' : b.ernst === 'oplossen' ? 'Toch accepteren' : b.soort === 'beeld-niet-geplaatst' ? 'Hoort er niet in' : 'Klopt zo';
+  return (
+    <li
+      className={cn(
+        'rounded-xl bg-white px-4 py-3 ring-1 ring-black/[0.06]',
+        b.ernst === 'oplossen' && !af && 'ring-destructive/30',
+        af && 'bg-transparent'
+      )}
+    >
+      <div className="flex items-start gap-3">
+        {beeld && !af ? (
+          <StoredImage
+            owner={owner}
+            name={beeld.thumb}
+            alt={beeld.nearby ?? beeld.id}
+            className="h-14 w-20 shrink-0 rounded-md bg-white object-contain ring-1 ring-black/[0.06]"
+          />
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <p className={cn('text-sm font-medium', af && 'text-muted-foreground line-through decoration-black/25')}>
+            {af ? <CheckCircle2 className="mr-1.5 inline size-3.5 -translate-y-px text-emerald-600" /> : null}
+            {b.titel}
+          </p>
+          {af ? null : (
+            <>
+              <p className="mt-0.5 text-sm text-muted-foreground">{b.uitleg}</p>
+              {b.bewijs.length ? (
+                <div className="mt-2 grid gap-1.5">
+                  {b.bewijs.map((fragment, i) => (
+                    <BewijsRegel key={i} fragment={fragment} />
+                  ))}
+                </div>
+              ) : null}
+              {b.lijst?.length ? <Lijst regels={b.lijst} /> : null}
+            </>
+          )}
+          {b.ernst !== 'info' || b.zoek ? (
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {b.ernst !== 'info' ? (
+                <Button type="button" size="sm" variant={af ? 'ghost' : 'outline'} className="h-7 text-xs" onClick={() => onToggle(b.id)}>
+                  {af ? <RotateCcw className="size-3.5" /> : null}
+                  {knop}
+                </Button>
+              ) : null}
+              {b.zoek && !af ? (
+                <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" onClick={() => onNaarPlek(b.zoek!)}>
+                  <LocateFixed className="size-3.5" />
+                  Naar de plek
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function BewijsRegel({ fragment }: { fragment: Bewijs }) {
+  return (
+    <div className="rounded-lg bg-black/[0.035] px-3 py-2 text-sm leading-relaxed">
+      <p className="text-xs text-muted-foreground">{fragment.label}</p>
+      <p className="break-words">{gemarkeerd(fragment.tekst, fragment.markeer)}</p>
+    </div>
+  );
+}
+
+/** De woorden uit `markeer` in de tekst gemarkeerd, als hele woorden en ongeacht hoofdletters. */
+function gemarkeerd(tekst: string, markeer: string[] | undefined): ReactNode {
+  if (!markeer?.length) return tekst;
+  const woorden = [...new Set(markeer)].sort((a, b) => b.length - a.length).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const patroon = new RegExp(`(?<![\\p{L}\\p{N}])(${woorden.join('|')})(?![\\p{L}\\p{N}])`, 'giu');
+  const delen = tekst.split(patroon);
+  return delen.map((deel, i) =>
+    i % 2 === 1 ? (
+      <mark key={i} className="rounded bg-amber-200/70 px-0.5 text-amber-950">
+        {deel}
+      </mark>
+    ) : (
+      deel
+    )
+  );
+}
+
+function Lijst({ regels }: { regels: string[] }) {
+  if (regels.length <= 4) {
+    return (
+      <ul className="mt-2 grid gap-1 text-sm text-muted-foreground">
+        {regels.map((r, i) => (
+          <li key={i} className="break-words">
+            {r}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  return (
+    <Collapsible className="mt-2">
+      <CollapsibleTrigger className="group flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+        <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
+        {regels.length} regels tonen
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <ul className="mt-1.5 grid gap-1 text-sm text-muted-foreground">
+          {regels.map((r, i) => (
+            <li key={i} className="break-words">
+              {r}
+            </li>
+          ))}
+        </ul>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// ─── Ter informatie ──────────────────────────────────────────────────────────
+
+function PerPagina({ pages }: { pages: PageResult[] }) {
+  if (!pages.length) return null;
+  return (
+    <section className="rounded-xl bg-black/[0.04] px-4 py-3">
+      <h3 className="text-sm font-medium">Per pagina</h3>
+      <p className="mt-0.5 text-sm text-muted-foreground">
+        Het percentage is hoeveel van de geschreven woorden in de OCR van die pagina staan.
+      </p>
+      <ul className="mt-2 divide-y divide-black/[0.06]">
+        {pages.map((page) => (
+          <li key={page.page} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-2.5 text-sm">
+            <span className="w-24 shrink-0 text-muted-foreground">Pagina {page.page}</span>
+            <span className="w-12 shrink-0 tabular-nums">{Math.round(page.check.score * 100)}%</span>
+            <span className="min-w-0 flex-1 text-muted-foreground">
+              {page.blocks.length} blok{page.blocks.length === 1 ? '' : 'ken'} · {tally(page.patches)} ·{' '}
+              {page.continuity.continuesFromPrevious ? 'loopt door van vorige' : 'nieuwe start'} ·{' '}
+              {page.continuity.continuesOnNext ? 'loopt door' : 'sluit af'}
+            </span>
+            <Badge variant="secondary" className="border-0">
+              {WAARVANDAAN[page.typography ?? 'onbekend']}
+            </Badge>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 pb-1 text-sm text-muted-foreground">{herkomst(pages)}</p>
+    </section>
+  );
+}
+
+function Opmaak({ pages }: { pages: PageResult[] }) {
+  if (!pages.some((p) => p.patches.length)) return null;
+  return (
+    <section className="rounded-xl bg-black/[0.04] px-4 py-3">
+      <h3 className="text-sm font-medium">Opmaak per fragment</h3>
+      <p className="mt-1 text-sm text-muted-foreground">{overall(pages)}</p>
+      <ul className="mt-2 divide-y divide-black/[0.06]">
+        {pages.flatMap((page) =>
+          page.patches.map((patch, i) => {
+            const dropped = page.dropped.includes(i);
+            return (
+              <li
+                key={`${page.page}-${i}`}
+                className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 py-2.5 text-sm ${dropped ? 'opacity-50' : ''}`}
+              >
+                <span className="w-24 shrink-0 text-muted-foreground">
+                  p{page.page} {patch.target}
+                </span>
+                <span className="w-24 shrink-0">{patch.style.join('+')}</span>
+                <span className={`min-w-0 flex-1 ${dropped ? 'text-muted-foreground line-through' : 'text-muted-foreground'}`}>
+                  &ldquo;{clip(patch.find)}&rdquo;
+                  {dropped ? ' · niet toegepast' : ''}
+                </span>
+              </li>
+            );
+          })
+        )}
+      </ul>
+    </section>
   );
 }
 

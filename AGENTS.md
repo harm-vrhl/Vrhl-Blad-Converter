@@ -276,6 +276,8 @@ lib/agents/boundary.ts   magazine: waar houdt het vorige artikel op
 lib/magazine/         stitch (regels: inhoudsopgave leidend, anders pagina's), types
 lib/agents/contentcheck.ts  magazine: hoort dit bij het artikel uit de inhoudsopgave
 lib/nearby.ts         de tekst naast een beeld (naam onder een portret), uit de tekstlaag
+lib/controle.ts       wat de Controle-tab meldt en hoe erg: oplossen, nakijken, info, plus
+                      het oordeel. Rekenen, geen React, en staat in npm run golden
 lib/pictures.ts       welk beeld het artikel haalde en welk niet, in vier groepen voor
                       de Controle-tab. Rekenen, geen React, en staat in npm run golden
 lib/client/analyze.ts    magazine: de analyse geregisseerd vanuit de browser
@@ -287,7 +289,8 @@ lib/llm/ratelimit.ts  houdt zich aan de limieten die Mistral in elk antwoord mel
 lib/llm/mistral.ts    OCR, alleen woorden, één pagina per call
 app/                  UI en API-routes
 components/           Workflow (de zijbalk), ArticleView, MagazineView, Checks (de
-                      Controle-tab, met het beeld uit de PDF als thumbnails),
+                      Controle-tab: oordeel, kaarten per bevinding, afvinken; tekent
+                      alleen wat lib/controle.ts uitrekent),
                       PageThumbs, StoredImage
 components/article/   het artikelscherm uit app/page.tsx: useArticleRun (alle state van
                       een run en de vier resets, die bewust verschillen), useSettings,
@@ -301,6 +304,35 @@ scripts/golden.ts     het vangnet: rekent de vaste stappen door op .data/jobs en
 .data/jobs/<id>/      alleen nog oude jobs van vóór de browseropslag; niets leest
                       of schrijft hier meer
 ```
+
+## De Controle-tab
+
+`lib/controle.ts` rekent uit wat er gemeld wordt, `components/Checks.tsx` tekent
+het, `components/article/useControle.ts` laadt de OCR en onthoudt het afvinken
+(onder `run/nagekeken`, zodat een nieuwe run zonder hervatten het wist).
+
+- **Indelen naar wat de redacteur moet doen**, niet naar waar het vandaan komt:
+  *oplossen* (tekst ontbreekt, pagina mislukt), *nakijken* (kan kloppen, kan fout
+  zijn), *info* (telt niet mee). Het oordeel bovenaan en de teller op het tabblad
+  volgen daaruit, en Vrhl-Blad-Studio vraagt bevestiging zolang er iets openstaat.
+- **Een nieuwe regel meet je eerst op de oude jobs** voor hij erin komt. Een melding
+  die bij de helft van de artikelen afgaat, wordt genegeerd; dan is de controle
+  niet foolproof maar stil. Zo is "vaker gebruikt dan de pagina bevat" (301 keer,
+  vooral pull quotes) een dubbele passage van acht woorden geworden, en zijn losse
+  letters in de lopende tekst info (alle gevallen waren terecht) maar in de kop
+  nakijken.
+- **Tekst ontbreekt** is het omgekeerde van woorddekking: hoeveel van de OCR terugkomt
+  in het artikel. Onder de 50% op een pagina met 80+ woorden. Op 316 tekstpagina's
+  waren dat precies de 4 kapotte.
+- **Een pagina die mislukt, zegt dat met `PageResult.failed`.** Raad het niet uit een
+  lege pagina: een fotopagina is ook leeg. Oude jobs vallen terug op de waarschuwing.
+- **Reken op het artikel zoals het nu is** (`current`, met correcties), waar het kan.
+  Een woord dat de redacteur weghaalt, laat zijn melding verdwijnen.
+- **Naar de plek zoekt op tekst** (`naarPlek`), niet op blok-id: blokken hebben geen
+  vast id en verschuiven bij slepen. Geef een bevinding een `zoek` die letterlijk
+  in de Artikel-tab staat.
+- **Een beeld in het artikel draagt het id van zijn blok** (`p3-02`), niet dat van de
+  bitmap. Koppel op `file`.
 
 ## Tijdelijk uitgezet, niet weggehaald
 

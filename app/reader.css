@@ -481,3 +481,16 @@
 @media (max-width: 767px) {
   .reader .reader-handle { right: calc(100% + 2px); width: 18px; }
 }
+
+/* Naar de plek vanuit de Controle-tab: de gezochte tekst licht even op. */
+.reader .controle-flits {
+  border-radius: 4px;
+  animation: controle-flits 2.4s ease-out;
+}
+@keyframes controle-flits {
+  0%, 35% { background-color: rgb(253 230 138 / 0.75); box-shadow: 0 0 0 6px rgb(253 230 138 / 0.75); }
+  100% { background-color: transparent; box-shadow: 0 0 0 6px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader .controle-flits { animation: none; background-color: rgb(253 230 138 / 0.6); box-shadow: 0 0 0 6px rgb(253 230 138 / 0.6); }
+}

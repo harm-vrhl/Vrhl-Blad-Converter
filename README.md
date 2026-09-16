@@ -161,6 +161,26 @@ genormaliseerde woordindex, en daar wordt de leesvolgorde-run tegen afgerekend:
 Staan er te veel onbekende woorden in, dan volgt één herkansing van die ene
 pagina. Niet het hele artikel. Zie het tabblad *Controle*.
 
+## Het tabblad Controle
+
+Bovenaan staat één oordeel: **Nog niet versturen**, **Nakijken** of **Klaar om te
+versturen**. Dezelfde kleur en teller staan op het tabblad zelf.
+
+Daaronder staat wat er moet gebeuren, op volgorde van ernst:
+
+- **Moet opgelost**: een pagina is mislukt, of er ontbreekt tekst (minder dan de
+  helft van de woorden op de pagina staat in het artikel).
+- **Nakijken**: woorden die niet in de PDF staan, tekst die twee keer in het
+  artikel staat, een alinea die midden in een woord begint, een kop met woorden
+  die niet in de PDF staan, een goedgekeurd beeld dat nergens staat, een losse
+  letter in de kop.
+
+Elk punt laat het bewijs zien, de zin uit het artikel naast de regel uit de PDF,
+met *Naar de plek* om ernaartoe te springen. Wie het heeft bekeken, klikt op *Klopt
+zo*; het oordeel telt mee. Staat er nog iets open, dan vraagt *Vrhl-Blad-Studio*
+eerst of je het toch wilt versturen. Dekking per pagina, het beeld uit de PDF en de
+technische meldingen staan onder *Ter informatie*.
+
 ## Doorlopende tekst
 
 Zegt de leesvolgorde-run dat een pagina midden in het artikel begint, dan wordt de eerste

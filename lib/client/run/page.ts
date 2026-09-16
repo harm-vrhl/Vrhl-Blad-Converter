@@ -245,7 +245,8 @@ function emptyPage(page: number, message: string, isLast: boolean): PageResult {
     content: [],
     continuity: { continuesFromPrevious: false, continuesOnNext: !isLast },
     check: { unknown: [], overused: [], score: 0 },
-    warnings: [message]
+    warnings: [message],
+    failed: message
   };
 }
 
