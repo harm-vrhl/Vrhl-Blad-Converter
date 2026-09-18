@@ -258,8 +258,7 @@ voor zichzelf en staat er bij elke poging een melding in de log.
 
 **Serverlog.** Elke taak (omzetten, magazine analyseren, export, inloggen) is
 een JSON-regel in de Runtime Logs van Vercel. Filter op `src:vrhl`. Geen
-artikeltekst en geen PDF: de server onthoudt die nog steeds niet. Bij inloggen
-kun je een naam invullen, zodat in de log staat wie het was.
+artikeltekst en geen PDF: de server onthoudt die nog steeds niet.
 
 Op Vercel verder: alle sleutels uit `.env.example` als omgevingsvariabelen. Fluid
 compute staat standaard aan, en is nodig: de zware stappen mogen 800 seconden
