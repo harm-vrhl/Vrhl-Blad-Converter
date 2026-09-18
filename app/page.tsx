@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy, RotateCcw } from "lucide-react";
 import { ArticleView } from "@/components/ArticleView";
 import { AppHeader } from "@/components/article/AppHeader";
@@ -14,6 +14,7 @@ import { isPakketJob } from "@/lib/client/import";
 import { STUDIO, STUDIO_GELUKT } from "@/lib/studio";
 import { useControle } from "@/components/article/useControle";
 import { UitlegKnop } from "@/components/article/Uitleg";
+import type { TourFilter } from "@/components/article/tour";
 import { Zoekbalk } from "@/components/article/Zoekbalk";
 import { naarPlek, naarZoek } from "@/components/article/naarPlek";
 import { WorkflowSidebar } from "@/components/article/WorkflowSidebar";
@@ -154,6 +155,16 @@ export default function Home() {
   const workspace = !showMagazine && !(idle || ((phase === "rendering" || phase === "importing") && !job));
   const noticeOk = !!notice && notice.startsWith(STUDIO_GELUKT);
   const tabVoorTour = useRef<Tab | null>(null);
+  const tourFilter = useMemo((): TourFilter => {
+    const omzetten =
+      !!job &&
+      !isPakketJob(job) &&
+      (phase === "ready" || phase === "running" || phase === "error");
+    const voortgang =
+      steps.length > 0 || phase === "running" || phase === "done" || phase === "error";
+    const tabs = !!(status.length || totals || phase === "running" || phase === "done");
+    return { omzetten, voortgang, tabs, artikel: !!doc };
+  }, [job, phase, steps.length, status.length, totals, doc]);
 
   return (
     <div className="flex h-svh flex-col overflow-hidden">
@@ -179,6 +190,7 @@ export default function Home() {
         uitleg={
           <UitlegKnop
             auto={idle && earlier !== null && earlier.length === 0}
+            filter={workspace ? tourFilter : undefined}
             bewaarWeergave={() => {
               tabVoorTour.current = tab;
             }}

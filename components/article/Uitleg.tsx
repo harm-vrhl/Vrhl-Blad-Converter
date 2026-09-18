@@ -3,7 +3,13 @@
 import { useEffect, useRef } from "react";
 import { CircleHelp } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { startTour, tourBezig, uitlegGezien, type TourCtx } from "@/components/article/tour";
+import {
+  startTour,
+  tourBezig,
+  uitlegGezien,
+  type TourCtx,
+  type TourFilter,
+} from "@/components/article/tour";
 import "driver.js/dist/driver.css";
 import "./tour.css";
 
@@ -13,19 +19,21 @@ import "./tour.css";
  */
 export function UitlegKnop({
   auto,
+  filter,
   bewaarWeergave,
   herstelWeergave,
   openSidebar,
   voorArtikelStap,
 }: {
   auto?: boolean;
+  filter?: TourFilter;
   bewaarWeergave?: () => void;
   herstelWeergave?: () => void;
   openSidebar?: () => void;
   voorArtikelStap?: () => void;
 }) {
-  const ctx = useRef<TourCtx>({ bewaarWeergave, herstelWeergave, openSidebar, voorArtikelStap });
-  ctx.current = { bewaarWeergave, herstelWeergave, openSidebar, voorArtikelStap };
+  const ctx = useRef<TourCtx>({ filter, bewaarWeergave, herstelWeergave, openSidebar, voorArtikelStap });
+  ctx.current = { filter, bewaarWeergave, herstelWeergave, openSidebar, voorArtikelStap };
 
   useEffect(() => {
     if (!auto || uitlegGezien()) return;
