@@ -209,6 +209,9 @@ http://localhost:3210 · PDF erin · *Omzetten*.
 
 ## Opslag, en hosten op Vercel
 
+Zie [GO-LIVE-v0.1.md](GO-LIVE-v0.1.md) voor de v0.1-checklist (Vercel, firewall,
+redactie).
+
 De app draait op Vercel. Daar bewaart de server niets: elk verzoek kan op een
 andere machine landen en een schijf blijft niet bestaan. Daarom:
 
