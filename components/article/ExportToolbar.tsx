@@ -7,9 +7,11 @@ import {
   FileJson,
   FileText,
   Globe,
+  ImageIcon,
   Loader2,
   Package,
   Printer,
+  Type,
   UploadCloud,
   type LucideIcon,
 } from "lucide-react";
@@ -32,28 +34,35 @@ interface Optie {
   formaat: ExportFormaat;
   label: string;
   extensie: string;
-  uitleg: string;
+  /** Alleen bij Blad: dat is bewaren, geen weergave. */
+  uitleg?: string;
   icoon: LucideIcon;
+  /** Het bestand zelf draagt het beeld, niet alleen een verwijzing. */
+  beeld?: boolean;
 }
 
 /**
- * De formaten, in de volgorde van het menu. Het pakket staat apart onderaan:
- * dat is geen weergave van het artikel maar het artikel zelf, met beeld, voor
- * wie het elders wil inlezen.
+ * De formaten, in de volgorde van het menu. Het .blad-bestand staat apart
+ * onderaan: dat is geen weergave van het artikel maar het artikel zelf, met
+ * beeld en pagina's, om later weer te openen.
+ *
+ * T = tekst zit in het bestand. Het beeld-icoon = de foto's zitten er ook in.
+ * JSON en MDX hebben alleen de tekst; HTML, Word en PDF nemen het beeld mee.
  */
 const WEERGAVEN: Optie[] = [
-  { formaat: "json", label: "JSON", extensie: ".json", uitleg: "Het pakket, zonder beeld", icoon: FileJson },
-  { formaat: "html", label: "HTML", extensie: ".html", uitleg: "Eén bestand, beeld erin", icoon: Globe },
-  { formaat: "mdx", label: "MDX", extensie: ".mdx", uitleg: "Voor de Vrhl-Blad-site", icoon: FileCode },
-  { formaat: "docx", label: "Word", extensie: ".docx", uitleg: "Om te bewerken of te delen", icoon: FileText },
-  { formaat: "pdf", label: "PDF", extensie: ".pdf", uitleg: "Kies in het printvenster: Opslaan als PDF", icoon: Printer },
+  { formaat: "json", label: "JSON", extensie: ".json", icoon: FileJson },
+  { formaat: "html", label: "HTML", extensie: ".html", icoon: Globe, beeld: true },
+  { formaat: "mdx", label: "MDX", extensie: ".mdx", icoon: FileCode },
+  { formaat: "docx", label: "Word", extensie: ".docx", icoon: FileText, beeld: true },
+  { formaat: "pdf", label: "PDF", extensie: ".pdf", icoon: Printer, beeld: true },
 ];
 const PAKKET: Optie = {
-  formaat: "zip",
-  label: "Pakket",
-  extensie: ".zip",
-  uitleg: "JSON plus al het beeld",
+  formaat: "blad",
+  label: "Blad",
+  extensie: ".blad",
+  uitleg: "Lokaal bewaren, met beeld en pagina's; later weer te openen",
   icoon: Package,
+  beeld: true,
 };
 
 const BEZIG: Record<ExportFormaat, string> = {
@@ -62,7 +71,7 @@ const BEZIG: Record<ExportFormaat, string> = {
   html: "HTML maken…",
   mdx: "MDX maken…",
   json: "JSON maken…",
-  zip: "Inpakken…",
+  blad: "Inpakken…",
 };
 
 /** Exporteren in één menu, en daarnaast Vrhl-Blad-Studio: dat is geen download maar versturen. */
@@ -85,14 +94,14 @@ export function ExportToolbar({
     <QuietToolbar aria-label="Exporteren">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <ToolbarButton type="button" disabled={!ready || !!exporting}>
+          <ToolbarButton type="button" data-tour="export" disabled={!ready || !!exporting}>
             {exporting ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
             {exporting ? BEZIG[exporting] : "Exporteren"}
             {exporting ? null : <ChevronDown className="size-3 opacity-60" />}
           </ToolbarButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuLabel>Downloaden als</DropdownMenuLabel>
+          <DropdownMenuLabel>Lokaal bewaren als</DropdownMenuLabel>
           {WEERGAVEN.map((optie) => (
             <Item key={optie.formaat} optie={optie} exportAs={exportAs} />
           ))}
@@ -103,6 +112,7 @@ export function ExportToolbar({
       <ToolbarRule />
       <ToolbarButton
         type="button"
+        data-tour="studio"
         disabled={!!pushing || !settings?.sanity?.ready}
         title={
           settings?.sanity?.ready
@@ -135,8 +145,25 @@ function Item({ optie, exportAs }: { optie: Optie; exportAs: (formaat: ExportFor
         <span>
           {optie.label} <span className="text-muted-foreground">{optie.extensie}</span>
         </span>
-        <span className="text-xs text-muted-foreground">{optie.uitleg}</span>
+        {optie.uitleg ? <span className="text-xs text-muted-foreground">{optie.uitleg}</span> : null}
       </span>
+      {optie.uitleg ? null : <Inhoud beeld={!!optie.beeld} />}
     </DropdownMenuItem>
+  );
+}
+
+/** Wat het bestand meeneemt: altijd tekst, beeld alleen als het erin zit. */
+function Inhoud({ beeld }: { beeld: boolean }) {
+  return (
+    <span className="ml-3 flex items-center gap-1 text-muted-foreground">
+      <span title="Tekst">
+        <Type className="size-3.5" aria-label="Tekst" />
+      </span>
+      {beeld ? (
+        <span title="Beeld">
+          <ImageIcon className="size-3.5" aria-label="Beeld" />
+        </span>
+      ) : null}
+    </span>
   );
 }

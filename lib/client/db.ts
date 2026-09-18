@@ -102,6 +102,23 @@ export async function deleteOwner(id: string): Promise<void> {
   }
 }
 
+/**
+ * Alles in deze browser weg: artikelen, magazines, bestanden en tussenresultaten.
+ * De verbinding blijft open; alleen de inhoud van de stores verdwijnt.
+ */
+export async function clearAll(): Promise<void> {
+  const tx = (await db()).transaction(['jobs', 'magazines', 'files', 'data'], 'readwrite');
+  await Promise.all([
+    tx.objectStore('jobs').clear(),
+    tx.objectStore('magazines').clear(),
+    tx.objectStore('files').clear(),
+    tx.objectStore('data').clear(),
+    tx.done
+  ]);
+  for (const url of urls.values()) URL.revokeObjectURL(url);
+  urls.clear();
+}
+
 // ─── Magazines ───────────────────────────────────────────────────────────────
 
 export async function saveMagazine(magazine: Magazine): Promise<void> {

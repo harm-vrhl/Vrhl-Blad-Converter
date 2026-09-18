@@ -172,6 +172,19 @@ export const env = {
   /** Schrijftoken. Verlaat de server nooit; de interface hoort alleen of hij er is. */
   get sanityToken() {
     return str('SANITY_API_TOKEN', '');
+  },
+
+  /**
+   * Het logboek van taken (omzetten, magazine, export, inlog). Staat standaard
+   * aan: JSON op stdout, en als Sanity is gekoppeld ook in een aparte dataset
+   * zodat `/logboek` ze kan tonen. Geen artikeltekst, geen PDF.
+   */
+  get activityLog(): boolean {
+    return str('ACTIVITY_LOG', 'true') === 'true';
+  },
+  /** Eigen dataset, niet die van de artikelen. */
+  get activityDataset() {
+    return str('ACTIVITY_DATASET', 'logs');
   }
 };
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { ArrowDown, ArrowUp } from 'lucide-react';
 import {
   createContext,
   Fragment,
@@ -33,8 +34,9 @@ import type { ContentNode } from '@/lib/types';
  * als elk ander, dus ook die kan erin, eruit en naar een andere plek.
  *
  * Slepen gaat met pointer-events, niet met HTML-drag-and-drop: in een pagina vol
- * contenteditable wil de browser dan tekst slepen. Met de greep in focus doen de
- * pijltjes hetzelfde, en een pijltje dat een kader raakt gaat erin of eruit.
+ * contenteditable wil de browser dan tekst slepen. De bolletjes boven en onder
+ * de greep, en de pijltjestoetsen als de greep focus heeft, zetten het blok één
+ * plek op of neer. Een stap die een kader raakt gaat erin of eruit.
  */
 
 export interface BlockPath {
@@ -98,6 +100,35 @@ function nodeAt(content: readonly ContentNode[], path: BlockPath): ContentNode |
 /** Een plek die het blok laat waar het is. */
 function stays(from: BlockPath, slot: BlockPath): boolean {
   return from.box === slot.box && (slot.index === from.index || slot.index === from.index + 1);
+}
+
+/**
+ * De invoegplek één stap verder. Null als het blok al aan het begin of eind van
+ * de hoofdtekst staat. Tegen een kader aan gaat het erin; het eerste of laatste
+ * blok van een kader gaat eruit.
+ */
+function neighbourSlot(
+  content: readonly ContentNode[],
+  path: BlockPath,
+  direction: -1 | 1
+): BlockPath | null {
+  const node = nodeAt(content, path);
+  if (!node) return null;
+
+  if (path.box == null) {
+    const neighbour = content[path.index + direction];
+    if (!neighbour) return null;
+    if (neighbour.type === 'insert' && node.type !== 'insert') {
+      return { box: path.index + direction, index: direction === 1 ? 0 : neighbour.content.length };
+    }
+    return { box: null, index: direction === 1 ? path.index + 2 : path.index - 1 };
+  }
+
+  const box = content[path.box] as Insert;
+  const to = path.index + direction;
+  if (to < 0) return { box: null, index: path.box };
+  if (to >= box.content.length) return { box: null, index: path.box + 1 };
+  return { box: path.box, index: direction === 1 ? path.index + 2 : path.index - 1 };
 }
 
 // ─── De regie ────────────────────────────────────────────────────────────────
@@ -223,35 +254,13 @@ export function BlockDragProvider({
     [slotAt, update]
   );
 
-  /**
-   * Eén plek op of neer met het toetsenbord. Een blok dat tegen een kader aan
-   * schuift gaat erin; het eerste of laatste blok van een kader gaat eruit.
-   */
+  /** Eén plek op of neer. Tegen een kader aan gaat het erin of eruit. */
   const step = useCallback(
     (path: BlockPath, direction: -1 | 1) => {
       if (!onChange) return;
       const node = nodeAt(content, path);
-      if (!node) return;
-      let slot: BlockPath | null = null;
-
-      if (path.box == null) {
-        const neighbour = content[path.index + direction];
-        if (!neighbour) return;
-        if (neighbour.type === 'insert' && node.type !== 'insert') {
-          slot = { box: path.index + direction, index: direction === 1 ? 0 : neighbour.content.length };
-        } else {
-          slot = { box: null, index: direction === 1 ? path.index + 2 : path.index - 1 };
-        }
-      } else {
-        const box = content[path.box] as Insert;
-        const to = path.index + direction;
-        slot =
-          to < 0
-            ? { box: null, index: path.box }
-            : to >= box.content.length
-              ? { box: null, index: path.box + 1 }
-              : { box: path.box, index: direction === 1 ? path.index + 2 : path.index - 1 };
-      }
+      const slot = neighbourSlot(content, path, direction);
+      if (!node || !slot) return;
       focusNode.current = node;
       onChange(relocate(content, path, slot));
     },
@@ -326,6 +335,13 @@ export function BlockList({
   render: (node: ContentNode, index: number) => ReactNode;
 }) {
   const ctl = useContext(DragContext);
+  /** Welke greep even blijft staan nadat de muis het blok uit is: de pijl omlaag
+   * steekt in het volgende blok, en zonder dit pakt die de hover. */
+  const [armed, setArmed] = useState<string | null>(null);
+  const armedRef = useRef<string | null>(null);
+  const armTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(armTimer.current), []);
+
   if (!ctl) {
     return (
       <>
@@ -344,36 +360,66 @@ export function BlockList({
     <>
       {nodes.map((node, i) => {
         const path = { box, index: i };
+        const key = `${listKey(box)}:${i}`;
         const drop = slot ? (slot.index === i ? 'before' : slot.index === nodes.length && i === nodes.length - 1 ? 'after' : null) : null;
         return (
           <div
             key={i}
             ref={ctl.register(`w:${listKey(box)}:${i}`)}
             className="reader-block"
+            data-armed={armed === key ? 'true' : undefined}
             data-dragging={drag && drag.from.box === box && drag.from.index === i ? 'true' : undefined}
             data-drop={drop ?? undefined}
             data-label={drop && leaving ? 'Uit het kader halen' : undefined}
+            onPointerEnter={() => {
+              if (armedRef.current !== key) return;
+              window.clearTimeout(armTimer.current);
+              armedRef.current = null;
+              setArmed(null);
+            }}
+            onPointerLeave={() => {
+              armedRef.current = key;
+              setArmed(key);
+              window.clearTimeout(armTimer.current);
+              armTimer.current = window.setTimeout(() => {
+                if (armedRef.current !== key) return;
+                armedRef.current = null;
+                setArmed(null);
+              }, 400);
+            }}
           >
-            <button
-              type="button"
-              ref={ctl.register(`h:${listKey(box)}:${i}`)}
-              className="reader-handle"
-              aria-label={`${box == null ? 'Blok' : 'Blok in het kader'} ${i + 1} van ${nodes.length} verplaatsen`}
-              title="Sleep om te verplaatsen, ook in of uit een kader. Of gebruik de pijltjes omhoog en omlaag."
-              onPointerDown={(event) => ctl.start(path, event)}
-              onPointerMove={ctl.move}
-              onPointerUp={() => ctl.finish(true)}
-              onPointerCancel={() => ctl.finish(false)}
-              onKeyDown={(event) => {
-                if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
-                event.preventDefault();
-                ctl.step(path, event.key === 'ArrowUp' ? -1 : 1);
-              }}
-            >
-              {Array.from({ length: 6 }, (_, dot) => (
-                <i key={dot} />
-              ))}
-            </button>
+            <div className="reader-move">
+              <Nudge
+                direction={-1}
+                disabled={!neighbourSlot(ctl.content, path, -1)}
+                onStep={(direction) => ctl.step(path, direction)}
+              />
+              <button
+                type="button"
+                ref={ctl.register(`h:${listKey(box)}:${i}`)}
+                className="reader-handle"
+                aria-label={`${box == null ? 'Blok' : 'Blok in het kader'} ${i + 1} van ${nodes.length} verplaatsen`}
+                title="Sleep om te verplaatsen, ook in of uit een kader. De pijltjes zetten het één plek op of neer."
+                onPointerDown={(event) => ctl.start(path, event)}
+                onPointerMove={ctl.move}
+                onPointerUp={() => ctl.finish(true)}
+                onPointerCancel={() => ctl.finish(false)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+                  event.preventDefault();
+                  ctl.step(path, event.key === 'ArrowUp' ? -1 : 1);
+                }}
+              >
+                {Array.from({ length: 6 }, (_, dot) => (
+                  <i key={dot} />
+                ))}
+              </button>
+              <Nudge
+                direction={1}
+                disabled={!neighbourSlot(ctl.content, path, 1)}
+                onStep={(direction) => ctl.step(path, direction)}
+              />
+            </div>
             {render(node, i)}
           </div>
         );
@@ -408,6 +454,41 @@ export function useFrameDrop(box: number | null): {
     ...(moving && empty ? { 'data-drop': 'inside' as const } : {}),
     ...(here && drag.from.box !== box ? { 'data-label': 'In dit kader zetten' } : {})
   };
+}
+
+/** Een cirkel met pijl: één plek op of neer, zonder te slepen. Niet in de tabvolgorde; die blijft op de greep. */
+function Nudge({
+  direction,
+  disabled,
+  onStep
+}: {
+  direction: -1 | 1;
+  disabled: boolean;
+  onStep: (direction: -1 | 1) => void;
+}) {
+  const up = direction === -1;
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      className="reader-nudge"
+      disabled={disabled}
+      aria-label={up ? 'Eén plek omhoog' : 'Eén plek omlaag'}
+      title={up ? 'Eén plek omhoog' : 'Eén plek omlaag'}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onPointerUp={(event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onStep(direction);
+      }}
+    >
+      {up ? <ArrowUp aria-hidden size={12} /> : <ArrowDown aria-hidden size={12} />}
+    </button>
+  );
 }
 
 /** Het dichtstbijzijnde element dat zelf scrollt. */

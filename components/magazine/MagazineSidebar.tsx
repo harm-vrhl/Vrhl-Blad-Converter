@@ -55,7 +55,7 @@ export function MagazineSidebar({
   totals: Totals | null;
 }) {
   return (
-    <aside className="flex min-h-0 w-96 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar" aria-label="Magazine">
+    <aside className="flex min-h-0 w-96 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar" aria-label="Magazine" data-tour="magazine-sidebar">
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
         <ChainOfThought defaultOpen>
           <ChainOfThoughtHeader>

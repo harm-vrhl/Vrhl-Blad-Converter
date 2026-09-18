@@ -60,7 +60,7 @@ export function livePreview({
       dropped: applied.dropped,
       content: applied.content,
       continuity,
-      check: { unknown: [], overused: [], score: 1 },
+      check: { unknown: [], overused: [], score: 1, backed: 0, used: 0 },
       warnings: [],
     });
   }

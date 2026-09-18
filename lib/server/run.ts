@@ -1,8 +1,10 @@
 import type { AgentCtx } from '../agents/common';
+import type { ActivityStamp } from '../activity';
 import { deadlineFor, LIMIT_HEADER, TimeUp, type Deadline } from '../deadline';
 import { env, missingKeys, PROVIDERS, type Provider } from '../env';
 import { aiCost, mistralLimit, newLedger, type Ledger, type ModelChoice } from '../llm/chat';
 import { ocrCost, type OcrLedger } from '../llm/mistral';
+import { noteStep, pageOf, parseActivity, stepSlot } from './activity';
 import type { RunUsage } from '../types';
 import { errorMessage } from '../util';
 
@@ -22,6 +24,8 @@ export interface RunRequest<T> {
   provider: Provider;
   /** Wanneer Vercel deze route afbreekt, als de route zijn `maxDuration` meegaf. */
   deadline?: Deadline;
+  /** Wie de stap deed, los van de invoer van de agent. */
+  activity?: ActivityStamp;
   /** Een bestand uit het verzoek als data-URL, voor een agent die het wil zien. */
   image: (name: string) => Promise<string>;
   /** Een bestand uit het verzoek zoals het is, of null als het er niet in zit. */
@@ -61,7 +65,13 @@ export async function readRun<T>(request: Request, limit?: number): Promise<RunR
     const mime = found.type || (name.endsWith('.png') ? 'image/png' : 'image/jpeg');
     return `data:${mime};base64,${found.data.toString('base64')}`;
   };
-  return { input, provider, deadline, image, file };
+  const activity = parseActivity(form.get('activity'));
+  const slot = stepSlot.getStore();
+  if (slot) {
+    slot.activity = activity;
+    slot.page = pageOf(input);
+  }
+  return { input, provider, deadline, activity, image, file };
 }
 
 /** Een fout die de browser moet zien zoals hij is, met zijn eigen status. */

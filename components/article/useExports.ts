@@ -18,13 +18,13 @@ export function useExports({
   current: ArticleDocument | null;
   setNotice: (notice: string | null) => void;
 }) {
-  /** Welk formaat er nu gemaakt wordt. HTML, Word en de ZIP lezen al het beeld uit de opslag. */
+  /** Welk formaat er nu gemaakt wordt. HTML, Word en het .blad-bestand lezen al het beeld uit de opslag. */
   const [exporting, setExporting] = useState<ExportFormaat | null>(null);
   /** Het duwen naar Sanity, dat eerst het beeld één voor één uploadt. */
   const [pushing, setPushing] = useState<{ done: number; total: number } | null>(null);
 
   /**
-   * Het artikel als download: JSON, HTML, MDX, Word of het pakket als ZIP, of als
+   * Het artikel als download: JSON, HTML, MDX, Word of als .blad, of als
    * PDF via het printvenster.
    *
    * Wat in de Artikel-tab is rechtgezet gaat mee: het artikel zoals het nu op

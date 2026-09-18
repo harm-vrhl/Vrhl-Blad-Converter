@@ -12,7 +12,8 @@ const ORDER = STYLE_ORDER;
 const WORD = /[\p{L}\p{N}]/u;
 
 /**
- * Where the nth occurrence of `needle` starts, or -1 when there are too few.
+ * Waar `segments` een fragment verft: de n-de keer dat het als eigen woord
+ * staat. Controle springt hierlangs, niet via een eigen telling.
  *
  * Only places where the fragment stands as its own word count. The placer checks
  * this too, but it checks it against one page's blocks, and by the time a mark is
@@ -21,7 +22,7 @@ const WORD = /[\p{L}\p{N}]/u;
  * its own page can find itself inside a longer word. That is how "In" came to set
  * the middle of "ging" in bold.
  */
-function occurrence(text: string, needle: string, nth: number): number {
+export function occurrence(text: string, needle: string, nth = 0): number {
   const at = places(text, needle)[nth];
   return at === undefined ? -1 : at;
 }

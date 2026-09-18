@@ -134,7 +134,7 @@ export function MagazineView({
             </label>
           </Button>
           {map && phase === "done" ? (
-            <>
+            <div className="flex flex-wrap items-center gap-2" data-tour="magazine-actie">
               <Button
                 variant="ghost"
                 size="sm"
@@ -157,9 +157,9 @@ export function MagazineView({
                   `Omzetten${chosenCount ? ` (${chosenCount})` : ""}`
                 )}
               </Button>
-            </>
+            </div>
           ) : (
-            <>
+            <div className="flex flex-wrap items-center gap-2" data-tour="magazine-actie">
               {canResume ? (
                 <Button
                   variant="outline"
@@ -180,7 +180,7 @@ export function MagazineView({
                   "Analyseren"
                 )}
               </Button>
-            </>
+            </div>
           )}
         </div>
         <input
@@ -197,7 +197,7 @@ export function MagazineView({
         />
 
         {map?.articles.length ? (
-          <ul className="divide-y divide-black/[0.06] overflow-hidden rounded-xl bg-white ring-1 ring-black/5">
+          <ul data-tour="magazine-lijst" className="divide-y divide-black/[0.06] overflow-hidden rounded-xl bg-white ring-1 ring-black/5">
             {map.articles.map((article) => (
               <ArticleRow
                 key={article.id}

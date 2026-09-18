@@ -1,20 +1,22 @@
 "use client";
 
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { ArrowLeft, Loader2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { cn } from "cn";
 import type { Phase } from "@/components/article/useArticleRun";
 import { PROVIDER_KEY, type Provider, type Settings } from "@/components/article/useSettings";
 import { Logo } from "@/components/Logo";
 import { ProviderSwitch } from "@/components/ProviderSwitch";
 import { Button } from "@/components/ui/button";
 import type { StoredJob } from "@/lib/client/db";
+import { isPakketJob } from "@/lib/client/import";
 import type { RenderStep } from "@/lib/client/render";
 
 // Geen Tooltip hier met opzet: de hints bij de schakelaar en de knop van Vrhl-Blad-Studio zijn
 // juist nodig als die knoppen uit staan, en een tooltip krijgt op een disabled
 // element geen pointer-events. Het native title-attribuut wel.
 
-/** De balk bovenaan: logo, zijbalkknop, terug, bestand, provider en Convert. */
+/** De balk bovenaan: logo, zijbalkknop, terug, zoeken, provider en Omzetten. */
 export function AppHeader({
   workspace,
   sidebarOpen,
@@ -34,6 +36,8 @@ export function AppHeader({
   setProvider,
   converting,
   convert,
+  zoek,
+  uitleg,
 }: {
   workspace: boolean;
   sidebarOpen: boolean;
@@ -53,13 +57,37 @@ export function AppHeader({
   setProvider: Dispatch<SetStateAction<Provider>>;
   converting: boolean;
   convert: (resume?: boolean) => Promise<boolean>;
+  /** Zoekbalk, vast in deze balk zodat hij bij scrollen blijft staan. */
+  zoek?: ReactNode;
+  uitleg?: ReactNode;
 }) {
+  const terugNaarMagazine = mode === "magazine" && view === "artikel";
+  const terugNaarStart = !!job && !showMagazine && mode === "artikel";
   return (
     <header className="z-20 shrink-0 border-b bg-white/80 backdrop-blur-md">
       <div className="flex h-14 items-center justify-between gap-4 px-6">
         <div className="flex items-center gap-3">
           <h1 className="flex">
-            <Logo className="h-8" />
+            {terugNaarMagazine || terugNaarStart ? (
+              <button
+                type="button"
+                disabled={terugNaarStart && uploadDisabled}
+                className={cn(
+                  "rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                  terugNaarStart && uploadDisabled ? "cursor-default opacity-50" : "hover:opacity-70",
+                )}
+                aria-label="Naar overzicht"
+                title="Naar overzicht"
+                onClick={() => {
+                  if (terugNaarMagazine) setView("magazine");
+                  else closeJob();
+                }}
+              >
+                <Logo className="h-8" />
+              </button>
+            ) : (
+              <Logo className="h-8" />
+            )}
           </h1>
           {workspace ? (
             <Button
@@ -90,31 +118,27 @@ export function AppHeader({
             </Button>
           ) : null}
           {job && !showMagazine ? (
-            <>
-              <span className="hidden max-w-xs truncate text-xs text-muted-foreground sm:inline">
-                {job.filename}
-                {" · "}
-                {phase === "rendering"
-                  ? renderStep
-                    ? `${renderStep.page}/${renderStep.total} · ${renderStep.step}`
-                    : `${thumbs.length}/${job.pageCount} klaar`
-                  : `${job.pageCount} pagina's`}
-              </span>
-              {uploadDisabled || mode === "magazine" ? (
-                mode === "magazine" ? null : (
-                  <span className="px-2.5 text-sm text-muted-foreground/50">
-                    Andere PDF
-                  </span>
-                )
-              ) : (
-                <Button variant="ghost" size="sm" asChild>
-                  <label htmlFor="pdf-upload" className="cursor-pointer">
-                    Andere PDF
-                  </label>
-                </Button>
+            <span
+              className={cn(
+                "hidden truncate text-xs text-muted-foreground",
+                zoek ? "max-w-[10rem] lg:inline lg:max-w-xs" : "max-w-xs sm:inline"
               )}
-            </>
+            >
+              {job.filename}
+              {" · "}
+              {phase === "rendering"
+                ? renderStep
+                  ? `${renderStep.page}/${renderStep.total} · ${renderStep.step}`
+                  : `${thumbs.length}/${job.pageCount} klaar`
+                : isPakketJob(job)
+                  ? [job.pages.length ? `${job.pageCount} pagina's` : null, "geïmporteerd"]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : `${job.pageCount} pagina's`}
+            </span>
           ) : null}
+          {zoek ? <div data-tour="zoek" className="shrink-0">{zoek}</div> : null}
+          {uitleg}
           {/* Uitgezet met AI_PROVIDER_CHOICE, niet weggehaald. */}
           {settings?.providerChoice ? (
             <ProviderSwitch
@@ -141,13 +165,11 @@ export function AppHeader({
               Verder waar het stopte
             </Button>
           ) : null}
-          {job && !showMagazine ? (
+          {job && !showMagazine && !isPakketJob(job) && (phase === "ready" || phase === "running" || phase === "error") ? (
             <Button
               variant="brand"
-              disabled={
-                converting ||
-                (phase !== "ready" && phase !== "done" && phase !== "error")
-              }
+              data-tour="omzetten"
+              disabled={converting || phase === "running"}
               onClick={() => void convert()}
             >
               {phase === "running" ? (
@@ -156,7 +178,7 @@ export function AppHeader({
                   Bezig…
                 </>
               ) : (
-                "Convert"
+                "Omzetten"
               )}
             </Button>
           ) : null}

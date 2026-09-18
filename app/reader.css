@@ -324,18 +324,25 @@
 }
 
 /* Blokken verslepen. De greep staat in de marge links van het blok: een verticale
- * pil met twee kolommen van drie puntjes. Onzichtbaar tot je over het blok beweegt,
+ * pil met twee kolommen van drie puntjes. De bolletjes met pijl plakken er tegenaan,
+ * erboven en eronder; de greep zelf blijft op zijn plek. Onzichtbaar tot je over het blok beweegt,
  * zodat het artikel er gewoon als artikel uitziet. Alleen het binnenste blok toont
  * zijn greep; een kader toont de zijne pas als je over het kader zelf beweegt.
  */
 .reader .reader-block {
   position: relative;
 }
-.reader .reader-handle {
+.reader .reader-move {
   position: absolute;
   top: 0;
   right: calc(100% + 10px);
   z-index: 2;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.reader .reader-handle {
   display: grid;
   grid-template-columns: repeat(2, 3px);
   grid-auto-rows: 3px;
@@ -349,9 +356,33 @@
   background: color-mix(in srgb, currentColor 7%, transparent);
   color: inherit;
   cursor: grab;
-  opacity: 0;
   touch-action: none;
-  transition: opacity 120ms ease, background-color 120ms ease;
+  transition: background-color 120ms ease;
+}
+.reader .reader-nudge {
+  position: absolute;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 7%, transparent);
+  color: color-mix(in srgb, currentColor 70%, transparent);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.reader .reader-nudge:first-child {
+  bottom: calc(100% + 2px);
+}
+.reader .reader-nudge:last-child {
+  top: calc(100% + 2px);
+}
+.reader .reader-nudge svg {
+  width: 12px;
+  height: 12px;
 }
 .reader .reader-handle i {
   display: block;
@@ -360,29 +391,55 @@
   border-radius: 999px;
   background: color-mix(in srgb, currentColor 55%, transparent);
 }
-.reader .reader-block:hover:not(:has(.reader-block:hover)) > .reader-handle,
-.reader .reader-handle:focus-visible,
-.reader .reader-block[data-dragging='true'] > .reader-handle {
+/* De pijl omlaag steekt in de greep van het volgende blok. Zonder dit vangt die
+ * onzichtbare pijl omhoog de klik. Alleen de zichtbare greep mag de muis.
+ */
+.reader .reader-block:hover:not(:has(.reader-block:hover)) > .reader-move,
+.reader .reader-block[data-armed='true']:not(:has(.reader-block:hover)) > .reader-move,
+.reader .reader-move:focus-within,
+.reader .reader-block[data-dragging='true'] > .reader-move {
   opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  z-index: 4;
+}
+.reader .reader-block[data-armed='true']:not(:has(.reader-block:hover)) > .reader-move {
+  z-index: 6;
+}
+.reader .reader-block[data-armed='true'] ~ .reader-block:hover:not(:has(.reader-block:hover)) > .reader-move {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 .reader .reader-handle:hover,
-.reader .reader-handle:focus-visible {
+.reader .reader-handle:focus-visible,
+.reader .reader-nudge:hover:not(:disabled),
+.reader .reader-nudge:focus-visible {
   background: color-mix(in srgb, currentColor 14%, transparent);
   outline: none;
 }
-.reader .reader-handle:focus-visible {
+.reader .reader-handle:focus-visible,
+.reader .reader-nudge:focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 35%, transparent);
 }
-.reader .reader-block[data-dragging='true'] > .reader-handle {
+.reader .reader-nudge:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+.reader .reader-block[data-dragging='true'] .reader-handle {
   cursor: grabbing;
 }
+.reader .reader-block[data-dragging='true'] .reader-nudge {
+  visibility: hidden;
+}
 /* Een quote staat groter: de greep midden op de eerste regel ervan. */
-.reader .reader-block:has(> blockquote) > .reader-handle {
+.reader .reader-block:has(> blockquote) > .reader-move {
   top: 8px;
 }
 
 /* Het blok dat je sleept wordt lichter; een lijn laat zien waar het landt. */
-.reader .reader-block[data-dragging='true'] > :not(.reader-handle) {
+.reader .reader-block[data-dragging='true'] > :not(.reader-move) {
   opacity: 0.35;
 }
 .reader .reader-block[data-drop]::before {
@@ -472,17 +529,20 @@
 }
 
 /* In een kader zit het eerste en laatste blok in een wrapper; de marges erbinnen. */
-.reader .text-frame-block > .reader-block:first-child > :not(.reader-handle) { margin-top: 0; }
-.reader .text-frame-block > .reader-block:last-child > :not(.reader-handle) { margin-bottom: 0; }
+.reader .text-frame-block > .reader-block:first-child > :not(.reader-move) { margin-top: 0; }
+.reader .text-frame-block > .reader-block:last-child > :not(.reader-move) { margin-bottom: 0; }
 
 @media (hover: none) {
-  .reader .reader-handle { opacity: 0.6; }
+  .reader .reader-move { opacity: 0.6; visibility: visible; pointer-events: auto; }
 }
 @media (max-width: 767px) {
-  .reader .reader-handle { right: calc(100% + 2px); width: 18px; }
+  .reader .reader-move { right: calc(100% + 2px); }
+  .reader .reader-handle,
+  .reader .reader-nudge { width: 18px; }
+  .reader .reader-nudge { height: 18px; }
 }
 
-/* Naar de plek vanuit de Controle-tab: de gezochte tekst licht even op. */
+/* Naar de plek vanuit de Controle-tab: de alinea licht even op; het woord zelf is geselecteerd. */
 .reader .controle-flits {
   border-radius: 4px;
   animation: controle-flits 2.4s ease-out;
@@ -494,3 +554,21 @@
 @media (prefers-reduced-motion: reduce) {
   .reader .controle-flits { animation: none; background-color: rgb(253 230 138 / 0.6); box-shadow: 0 0 0 6px rgb(253 230 138 / 0.6); }
 }
+
+/* Zoekbalk: het woord, niet het blok. Geen selectie, die pakt de caret. */
+::highlight(zoek) {
+  background-color: rgb(253 230 138 / 0.55);
+  color: inherit;
+}
+::highlight(zoek-huidig) {
+  background-color: rgb(250 204 21 / 0.9);
+  color: inherit;
+}
+#zoek-overlays { position: fixed; inset: 0; z-index: 15; pointer-events: none; }
+.zoek-overlay {
+  position: fixed;
+  border-radius: 2px;
+  background: rgb(253 230 138 / 0.55);
+  mix-blend-mode: multiply;
+}
+.zoek-overlay-huidig { background: rgb(250 204 21 / 0.9); }

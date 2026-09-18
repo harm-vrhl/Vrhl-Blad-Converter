@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getData, putData, type StoredJob } from "@/lib/client/db";
-import { controleer, oordeel } from "@/lib/controle";
+import { controleer, oordeel, tekstOvereenkomst } from "@/lib/controle";
 import type { ArticleDocument, ImageVerdict, OcrPage, PageResult } from "@/lib/types";
 
 /**
@@ -63,6 +63,7 @@ export function useControle({
     [current, pageResults, ocr, job, verdicts],
   );
   const stand = useMemo(() => oordeel(bevindingen, nagekeken), [bevindingen, nagekeken]);
+  const overeenkomst = useMemo(() => tekstOvereenkomst(pageResults, ocr ?? []), [pageResults, ocr]);
 
   const toggle = useCallback(
     (id: string) => {
@@ -80,9 +81,11 @@ export function useControle({
   return {
     bevindingen,
     oordeel: stand,
+    overeenkomst,
     nagekeken,
     toggle,
     /** Null zolang er nog geladen wordt; leeg als de OCR van deze job niet bewaard is. */
     ocrBeschikbaar: ocr === null ? null : ocr.length > 0,
+    ocr: ocr ?? [],
   };
 }

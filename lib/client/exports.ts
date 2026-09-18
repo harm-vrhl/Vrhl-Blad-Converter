@@ -5,21 +5,22 @@ import { toDocx, type DocxBeeld } from '../docx';
 import { toHtml } from '../html';
 import { toMdx } from '../mdx';
 import type { PushResult } from '../sanity/push';
-import type { ArticleDocument, PageResult } from '../types';
+import type { ArticleDocument, OcrPage, PageResult } from '../types';
 import { zip, type ZipEntry } from '../zip';
 import { getData, getFile, type StoredJob } from './db';
+import { BLAD_META, BLAD_OCR, BLAD_PAGES, BLAD_VERSIE, bladPaginaPad, type BladMeta, type BladPagina } from './blad';
 import { postJson, runForm } from './post';
 import { errorMessage } from '../util';
 
 /**
- * De uitvoer van een artikel: als JSON, HTML, MDX, Word, PDF of pakket-ZIP, en
+ * De uitvoer van een artikel: als JSON, HTML, MDX, Word, PDF of .blad, en
  * hetzelfde pakket naar Vrhl-Blad-Studio (Sanity). Alles gaat uit van het artikel zoals het nu op
  * het scherm staat, met de correcties erin, en alles leest hetzelfde pakket:
- * wat in de ZIP staat, staat ook in de losse JSON, en daar komen HTML, MDX en
+ * wat in het .blad-bestand staat, staat ook in de losse JSON, en daar komen HTML, MDX en
  * Word weer uit.
  */
 
-export type ExportFormaat = 'json' | 'html' | 'mdx' | 'docx' | 'pdf' | 'zip';
+export type ExportFormaat = 'json' | 'html' | 'mdx' | 'docx' | 'pdf' | 'blad';
 
 /** Wat als bestand wordt gedownload; PDF gaat via het printvenster, zie `printPdf`. */
 export type DownloadFormaat = Exclude<ExportFormaat, 'pdf'>;
@@ -38,7 +39,7 @@ export async function exportFile(
   document: ArticleDocument,
   formaat: DownloadFormaat
 ): Promise<{ blob: Blob; name: string }> {
-  if (formaat === 'zip') return packageZip(job, document);
+  if (formaat === 'blad') return packageBlad(job, document);
   const pakket = await packageOf(job, document);
   const naam = `${baseName(job)}.${formaat}`;
   switch (formaat) {
@@ -61,7 +62,7 @@ export async function exportFile(
   }
 }
 
-/** De HTML-export, met het beeld in het bestand zelf, zodat hij ook los van de ZIP werkt. */
+/** De HTML-export, met het beeld in het bestand zelf, zodat hij ook los van het .blad-bestand werkt. */
 async function htmlOf(job: StoredJob, pakket: Pakket): Promise<string> {
   const beeld = await imagesOf(job, pakket);
   const dataUrls = new Map([...beeld].map(([id, b]) => [id, dataUrl(b)]));
@@ -154,20 +155,86 @@ function dataUrl({ data, mimeType }: DocxBeeld): string {
   return `data:${mimeType};base64,${btoa(binair)}`;
 }
 
-/** pakket.json plus het beeld ernaast, in één ZIP, zoals een importer het wil. */
-export async function packageZip(job: StoredJob, document: ArticleDocument): Promise<{ blob: Blob; name: string }> {
+/**
+ * Het artikel plus de paginascan, als `.blad`. Intern een ZIP: `pakket.json` en
+ * het beeld van het artikel, en ernaast de pagina's (voor de Controle-tab).
+ * Zonder het beeld van het artikel gaat hij de deur niet uit.
+ */
+export async function packageBlad(job: StoredJob, document: ArticleDocument): Promise<{ blob: Blob; name: string }> {
   const pakket = await packageOf(job, document);
   const entries: ZipEntry[] = [
     { path: 'pakket.json', data: new TextEncoder().encode(`${JSON.stringify(pakket, null, 2)}\n`) }
   ];
+  const ontbreekt: string[] = [];
   for (const file of packageFiles(pakket, job.images ?? [])) {
     const blob = await getFile(job.id, file.source);
-    // Een bitmap die er niet meer is houdt de rest niet tegen; het pakket
-    // verwijst er dan naar zonder hem mee te leveren, en dat meldt de validator
-    // van de andere kant met zoveel woorden.
-    if (blob) entries.push({ path: file.path, data: new Uint8Array(await blob.arrayBuffer()) });
+    if (!blob) {
+      ontbreekt.push(file.path);
+      continue;
+    }
+    entries.push({ path: file.path, data: new Uint8Array(await blob.arrayBuffer()) });
   }
-  return { blob: new Blob([zip(entries) as BlobPart], { type: 'application/zip' }), name: `${baseName(job)}.zip` };
+  if (ontbreekt.length) {
+    throw new Error(
+      ontbreekt.length === 1
+        ? `het beeld ${ontbreekt[0]} ontbreekt; een .blad-bestand gaat alleen mee met al het beeld erin`
+        : `${ontbreekt.length} beelden ontbreken; een .blad-bestand gaat alleen mee met al het beeld erin`
+    );
+  }
+
+  await packPaginas(job, entries);
+
+  return {
+    blob: new Blob([zip(entries) as BlobPart], { type: 'application/zip' }),
+    name: `${baseName(job)}.blad`
+  };
+}
+
+/** De paginascan en de controlestukken, naast het canonieke pakket. */
+async function packPaginas(job: StoredJob, entries: ZipEntry[]): Promise<void> {
+  const pages: BladPagina[] = [];
+  for (const page of job.pages ?? []) {
+    const imageName = page.image.replace(/^.*\//, '');
+    const thumbName = page.thumb.replace(/^.*\//, '');
+    const image = await getFile(job.id, page.image);
+    if (!image) continue;
+    entries.push({ path: bladPaginaPad(imageName), data: new Uint8Array(await image.arrayBuffer()) });
+    const thumb = await getFile(job.id, page.thumb);
+    if (thumb && thumbName !== imageName) {
+      entries.push({ path: bladPaginaPad(thumbName), data: new Uint8Array(await thumb.arrayBuffer()) });
+    }
+    pages.push({
+      page: page.page,
+      width: page.width,
+      height: page.height,
+      ...(page.points ? { points: page.points } : {}),
+      image: imageName,
+      thumb: thumb ? thumbName : imageName
+    });
+  }
+
+  const pagesJson = await getData<PageResult[]>(job.id, 'pages.json');
+  if (pagesJson) {
+    entries.push({
+      path: BLAD_PAGES,
+      data: new TextEncoder().encode(`${JSON.stringify(pagesJson)}\n`)
+    });
+  }
+  const ocr = await getData<OcrPage[]>(job.id, 'ocr.json');
+  if (ocr) {
+    entries.push({
+      path: BLAD_OCR,
+      data: new TextEncoder().encode(`${JSON.stringify(ocr)}\n`)
+    });
+  }
+
+  if (!pages.length && !job.verdicts?.length && !pagesJson && !ocr) return;
+  const meta: BladMeta = {
+    blad: BLAD_VERSIE,
+    pages,
+    ...(job.verdicts?.length ? { verdicts: job.verdicts } : {})
+  };
+    entries.push({ path: BLAD_META, data: new TextEncoder().encode(`${JSON.stringify(meta, null, 2)}\n`) });
 }
 
 /**

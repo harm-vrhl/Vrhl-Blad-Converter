@@ -48,6 +48,8 @@ export function checkAgainstIndex(index: WordIndex, output: string): IndexCheck 
   return {
     unknown: unknown.slice(0, 40),
     overused: overused.sort((a, b) => b.used - a.used).slice(0, 20),
-    score: total ? backed / total : 1
+    score: total ? backed / total : 1,
+    backed,
+    used: total
   };
 }

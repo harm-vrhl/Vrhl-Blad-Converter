@@ -30,7 +30,8 @@ import type {
  * beeld verplaatsen. Daarvoor is de PDF er.
  *
  * Wat wel kan: de volgorde. Elk blok heeft dan een greep om het te verslepen,
- * in de lopende tekst, binnen een kader, en een kader in of uit (`BlockDrag`).
+ * met pijltjes eromheen voor één plek op of neer, in de lopende tekst, binnen
+ * een kader, en een kader in of uit (`BlockDrag`).
  */
 export function ArticleView({
   doc,

@@ -9,7 +9,7 @@ woordindex die elke run nakijkt en typografie die rechtstreeks uit de PDF komt.
 haalt met pdf.js meteen de ingesloten bitmaps eruit, op de resolutie waarop ze in
 het blad staan.
 
-**Stap 2.** *Convert*.
+**Stap 2.** *Omzetten*.
 
 ```
      Mistral OCR (per pagina)          pdf.js ript de bitmaps
@@ -163,17 +163,18 @@ pagina. Niet het hele artikel. Zie het tabblad *Controle*.
 
 ## Het tabblad Controle
 
-Bovenaan staat één oordeel: **Nog niet versturen**, **Nakijken** of **Klaar om te
-versturen**. Dezelfde kleur en teller staan op het tabblad zelf.
+Bovenaan staat hoeveel woorden uit het artikel ook in de gelezen PDF-tekst
+staan, als telling (`247 / 250`), geen percentage-oordeel. Daaronder het oordeel:
+**Nog niet versturen**, **Nakijken** of **Klaar om te versturen**. Dezelfde kleur
+en teller staan op het tabblad zelf.
 
 Daaronder staat wat er moet gebeuren, op volgorde van ernst:
 
-- **Moet opgelost**: een pagina is mislukt, of er ontbreekt tekst (minder dan de
-  helft van de woorden op de pagina staat in het artikel).
-- **Nakijken**: woorden die niet in de PDF staan, tekst die twee keer in het
-  artikel staat, een alinea die midden in een woord begint, een kop met woorden
-  die niet in de PDF staan, een goedgekeurd beeld dat nergens staat, een losse
-  letter in de kop.
+- **Moet opgelost**: een pagina is mislukt, of er ontbreekt tekst.
+- **Nakijken**: extra tekst op de pagina, een woord dat anders luidt dan in de
+  PDF, tekst die twee keer staat, een alinea die midden in een woord begint, een
+  kop die niet in de PDF staat, een goedgekeurd beeld dat nergens staat, een
+  losse letter in de kop.
 
 Elk punt laat het bewijs zien, de zin uit het artikel naast de regel uit de PDF,
 met *Naar de plek* om ernaartoe te springen. Wie het heeft bekeken, klikt op *Klopt
@@ -204,7 +205,7 @@ OPENAI_API_KEY=...
 npm run dev
 ```
 
-http://localhost:3210 · PDF erin · *Convert*.
+http://localhost:3210 · PDF erin · *Omzetten*.
 
 ## Opslag, en hosten op Vercel
 
@@ -269,15 +270,16 @@ NEXT_DIST_DIR=.next-test npm run build
 ### Instellingen
 
 Alles in `.env.local`. Mistral leest altijd de pagina's (`mistral-ocr-latest`).
-Wie het artikel schrijft kies je per run met de schakelaar naast *Convert*:
+Wie het artikel schrijft staat in `AI_PROVIDER` (`openai` of `mistral`):
 
 | | model | prijs per 1M tokens (in / uit) |
 |---|---|---|
 | OpenAI | `gpt-5.6-terra` (`OPENAI_MODEL`) | $2 / $12 |
 | Mistral | `mistral-medium-2604`, Mistral Medium 3.5 (`MISTRAL_MODEL`) | $1,50 / $7,50 |
 
-`AI_PROVIDER` is de stand waarmee de schakelaar opent; je laatste keuze wordt
-onthouden. `OPENAI_REASONING_EFFORT` is voor OpenAI (`medium`). Mistral heeft
+Standaard schrijft OpenAI; de keuze per run in de interface staat uit
+(`AI_PROVIDER_CHOICE=false`). Zet die op `true` als je de schakelaar naast
+*Omzetten* terug wilt. `OPENAI_REASONING_EFFORT` is voor OpenAI (`medium`). Mistral heeft
 zijn eigen `MISTRAL_REASONING_EFFORT` (`high`): Medium 3.5 accepteert geen
 `medium`, en `high` is dezelfde kwaliteit als het eerdere stille remap.
 
@@ -436,12 +438,15 @@ datzelfde pakket en met de correcties erin:
 | **MDX** (.mdx) | Vrhl-Blad MDX voor de site |
 | **Word** (.docx) | om te bewerken of te delen; koppen, kaders met hun tint, lijsten en beeld |
 | **PDF** (.pdf) | via het printvenster: kies *Opslaan als PDF*. Zelfde opmaak als HTML, elk teken klopt |
-| **Pakket** (.zip) | `pakket.json` plus al het beeld |
+| **Blad** (.blad) | lokaal bewaren: artikel, beeld en pagina's; later weer te openen |
 
 Daarnaast staat **Vrhl-Blad-Studio**, los van het menu: dat is geen download maar versturen.
 
-Het pakket als ZIP bevat `pakket.json` en het beeld ernaast. Zo
-uitgepakt is het te controleren met de validator van het formaat zelf:
+**Blad openen.** Op het startscherm, onder het sleepvak: *Blad openen*. Een `.blad`-bestand is het artikel plus het beeld en de paginascan, intern een ZIP net als .docx. Het komt terug in de Artikel-tab, met de pagina's en de Controle-tab als die meekwamen. Niet opnieuw omzetten. JSON is alleen de tekst en gaat niet open: zonder beeld is het geen blad. Een oudere `.zip` uit de eerste export opent nog wel.
+
+Het `.blad`-bestand bevat `pakket.json` en het beeld ernaast, plus `paginas/` en
+`controle/` als die er waren. Uitgepakt is `pakket.json` te controleren met de
+validator van het formaat zelf:
 
 ```bash
 node canonical/validate.mjs pakket.json --bestanden

@@ -1,0 +1,93 @@
+/* Driver.js in de taal van de app: wit vlak, brand voor Volgende, Geist. */
+
+.driver-popover.uitleg-popover {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  color: var(--foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  min-width: 18rem;
+  max-width: 22rem;
+  padding: 1.15rem 1.2rem 1rem;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 12px 32px -8px rgba(0, 0, 0, 0.18);
+}
+
+.driver-popover.uitleg-popover .driver-popover-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  padding-right: 1.75rem;
+}
+
+.driver-popover.uitleg-popover .driver-popover-description {
+  margin-top: 0.4rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+
+.driver-popover.uitleg-popover .driver-popover-description b {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.driver-popover.uitleg-popover .driver-popover-close-btn {
+  color: var(--muted-foreground);
+  width: 1.75rem;
+  height: 1.75rem;
+  font-size: 1.35rem;
+  line-height: 1;
+  border-radius: 0.5rem;
+}
+
+.driver-popover.uitleg-popover .driver-popover-close-btn:hover,
+.driver-popover.uitleg-popover .driver-popover-close-btn:focus {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+.driver-popover.uitleg-popover .driver-popover-footer {
+  margin-top: 1rem;
+}
+
+.driver-popover.uitleg-popover .driver-popover-progress-text {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+
+.driver-popover.uitleg-popover .driver-popover-footer-btn {
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0.4rem 0.75rem;
+}
+
+.driver-popover.uitleg-popover .driver-popover-footer-btn:hover,
+.driver-popover.uitleg-popover .driver-popover-footer-btn:focus {
+  background: var(--muted);
+}
+
+.driver-popover.uitleg-popover .driver-popover-next-btn {
+  background: var(--brand);
+  color: var(--brand-foreground);
+  border-color: transparent;
+}
+
+.driver-popover.uitleg-popover .driver-popover-next-btn:hover,
+.driver-popover.uitleg-popover .driver-popover-next-btn:focus {
+  background: color-mix(in srgb, var(--brand), black 12%);
+  color: var(--brand-foreground);
+}
+
+.driver-popover.uitleg-popover .driver-popover-arrow {
+  border-width: 6px;
+}

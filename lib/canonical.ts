@@ -1,5 +1,6 @@
 import { linkify } from './links';
-import { segments } from './spans';
+import { bijschrift, delen, eersteArtikel, kaal } from './pakketlezen';
+import { places, segments } from './spans';
 import type {
   ArticleDocument,
   ContentNode,
@@ -8,6 +9,7 @@ import type {
   FrontmatterField,
   ImageSize,
   InlineStyle,
+  ListItem,
   PageResult,
   StyleSpan
 } from './types';
@@ -17,8 +19,10 @@ import type {
  *
  * Dit bestand is de enige plek die het formaat kent. Het weet niets van Sanity,
  * niets van MDX en niets van Word: die zijn alledrie consument van wat hier uit
- * komt, niet leverancier van wat hier in gaat. Zie canonical/README.md voor het
- * contract en canonical/validate.mjs voor de controle erop.
+ * komt. De andere kant op, van pakket naar artikelobject, is `fromPackage`: dat
+ * is hoe een eerder gedownload pakket weer in de converter komt. Zie
+ * canonical/README.md voor het contract en canonical/validate.mjs voor de
+ * controle erop.
  *
  * Wat hier gebeurt is een vertaling, geen oordeel. Alles wat de converter niet
  * uit de PDF kan weten (tags, editie, SEO, video) blijft weg in plaats van
@@ -237,6 +241,283 @@ export function toPackage(doc: ArticleDocument, options: PackageOptions = {}): P
   if (assets.length) pakket.assets = assets;
 
   return pakket;
+}
+
+/** Wat `fromPackage` teruggeeft: het artikel, en waar het beeld in de job moet staan. */
+export interface FromPackage {
+  document: ArticleDocument;
+  images: ExtractedImage[];
+  /** Pad in het pakket, naam in de job-opslag. */
+  files: Array<{ path: string; name: string }>;
+}
+
+/**
+ * Een pakket terug naar het artikelobject. De omgekeerde vertaling van
+ * `toPackage`: geen oordeel, geen ontbrekende velden verzinnen.
+ *
+ * Wat het formaat niet kan dragen, komt niet terug. Een streamer is in het
+ * pakket een quote, een credit die aan het bijschrift is geplakt blijft één
+ * bijschrift, en een link is in het artikelobject geen eigen veld. Beeld zonder
+ * bestand in het pakket wordt wel genoemd, maar heeft geen bytes.
+ */
+export function fromPackage(pakket: Pakket): FromPackage {
+  const gelezen = eersteArtikel(pakket);
+  if (!gelezen) throw new Error('in dit pakket staat geen artikel');
+  const { artikel, assets } = gelezen;
+
+  const usedNames = new Set<string>();
+  const files: Array<{ path: string; name: string }> = [];
+  const images: ExtractedImage[] = [];
+  const byAsset = new Map<string, string>();
+
+  const take = (id: string | undefined): string | null => {
+    if (!id) return null;
+    const known = byAsset.get(id);
+    if (known) return known;
+    const item = assets.get(id);
+    if (!item) return null;
+    const name = assetFileName(item, usedNames);
+    byAsset.set(id, name);
+    if (item.bestand) files.push({ path: item.bestand, name });
+    images.push(extracted(item, name));
+    return name;
+  };
+
+  const headerFile = take(artikel.header?.asset);
+  const introBlokken = artikel.intro ?? [];
+  const eersteAlinea = introBlokken.find((blok) => blok.soort === 'alinea');
+  const restIntro = introBlokken.filter((blok) => blok !== eersteAlinea);
+  const opening = eersteAlinea ? fromTekst(eersteAlinea.inhoud) : { content: '', styles: [] as StyleSpan[] };
+  const body = [...nodesOf(restIntro, take, assets), ...nodesOf(artikel.body, take, assets)];
+
+  const rubriek = titelVeld(artikel.rubriek, 'chapeau');
+  const titel = titelVeld(artikel.titel, 'title');
+  const ondertitel = titelVeld(artikel.ondertitel, 'subtitle');
+  const bron = artikel.bron ?? pakket.bron;
+
+  const document: ArticleDocument = {
+    source: {
+      file: bron?.bestand ?? 'pakket.json',
+      pages: bron?.paginas ? [...bron.paginas] : []
+    },
+    frontmatter: {
+      chapeau: rubriek.text,
+      title: titel.text,
+      subtitle: ondertitel.text,
+      authors: [...(artikel.credits?.auteurs ?? [])],
+      photographers: [...(artikel.credits?.fotografen ?? [])],
+      illustrators: [...(artikel.credits?.illustratoren ?? [])],
+      date: datumWeergave(artikel.datum),
+      intro: opening.content || null,
+      italics: [
+        ...rubriek.italics,
+        ...titel.italics,
+        ...ondertitel.italics,
+        ...italicsOfStyles('intro', opening.styles)
+      ]
+    },
+    header:
+      headerFile && artikel.header?.asset
+        ? {
+            id: artikel.header.asset,
+            file: headerFile,
+            alt: artikel.header.alt ?? assets.get(artikel.header.asset)?.alt ?? null
+          }
+        : null,
+    content: body
+  };
+
+  return { document, images, files };
+}
+
+/**
+ * Minimale controle: het is JSON, het zegt 1.0, en er zit een artikel in.
+ * De rest van het schema is aan de validator van het formaat; hier is een
+ * onbekend veld geen reden om te weigeren.
+ */
+export function parsePakket(json: string): Pakket {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json.replace(/^\uFEFF/, ''));
+  } catch {
+    throw new Error('dit bestand is geen geldige JSON');
+  }
+  if (!raw || typeof raw !== 'object' || (raw as Pakket).vrhlContent !== '1.0') {
+    throw new Error('dit is geen Vrhl-pakket (verwacht vrhlContent 1.0)');
+  }
+  const pakket = raw as Pakket;
+  if (!pakket.artikelen?.length) throw new Error('in dit pakket staat geen artikel');
+  return pakket;
+}
+
+function nodesOf(
+  blokken: Blok[] | undefined,
+  take: (id: string | undefined) => string | null,
+  assets: Map<string, Asset>
+): ContentNode[] {
+  const out: ContentNode[] = [];
+  for (const blok of blokken ?? []) {
+    const made = fromBlok(blok, take, assets);
+    if (made) out.push(made);
+  }
+  return out;
+}
+
+function fromBlok(
+  blok: Blok,
+  take: (id: string | undefined) => string | null,
+  assets: Map<string, Asset>
+): ContentNode | null {
+  switch (blok.soort) {
+    case 'alinea': {
+      const { content, styles } = fromTekst(blok.inhoud);
+      return content ? { type: 'paragraph', content, styles } : null;
+    }
+    case 'kop': {
+      const content = kaal(blok.inhoud);
+      return content ? { type: 'subheading', content } : null;
+    }
+    case 'quote': {
+      const content = kaal(blok.inhoud);
+      return content ? { type: 'quote', content } : null;
+    }
+    case 'lijst': {
+      const items = listItems(blok.items ?? []);
+      return items.length ? { type: 'list', ordered: blok.stijl === 'nummering', items } : null;
+    }
+    case 'afbeelding': {
+      const item = assets.get(blok.asset);
+      const caption = bijschrift(blok, item);
+      const credit = item?.credit && caption && !caption.includes(item.credit) ? item.credit : null;
+      return {
+        type: 'image',
+        id: blok.asset,
+        file: take(blok.asset),
+        caption,
+        credit,
+        size: fromGrootte(blok.grootte)
+      };
+    }
+    case 'video': {
+      const url = blok.url?.trim();
+      if (!url) return null;
+      const bij = blok.onderschrift?.trim();
+      return { type: 'paragraph', content: bij ? `${bij} ${url}` : url, styles: [] };
+    }
+    case 'tekstkader': {
+      const inner = nodesOf(blok.inhoud, take, assets);
+      if (!inner.length) return null;
+      return {
+        type: 'insert',
+        kind: 'box',
+        background: blok.achtergrondKleur ?? null,
+        ink: blok.tekstKleur ?? null,
+        content: inner
+      };
+    }
+  }
+}
+
+function listItems(items: LijstItem[]): ListItem[] {
+  const out: ListItem[] = [];
+  const walk = (item: LijstItem) => {
+    const { content, styles } = fromTekst(item.inhoud);
+    if (content) out.push({ content, styles });
+    item.items?.forEach(walk);
+  };
+  items.forEach(walk);
+  return out;
+}
+
+const VAN_STIJL: Partial<Record<CanonicalStijl, InlineStyle>> = {
+  vet: 'bold',
+  cursief: 'italic',
+  onderstreept: 'underline'
+};
+
+const VAN_GROOTTE: Record<Grootte, ImageSize> = {
+  klein: 'small',
+  normaal: 'normal',
+  groot: 'large',
+  extraGroot: 'xlarge'
+};
+
+function fromGrootte(waarde: Grootte | undefined): ImageSize {
+  return (waarde && VAN_GROOTTE[waarde]) || 'normal';
+}
+
+function fromTekst(
+  waarde: Tekst | Titel | undefined,
+  allowed: InlineStyle[] = ['bold', 'italic', 'underline']
+): { content: string; styles: StyleSpan[] } {
+  const parts = delen(waarde);
+  const content = parts.map((deel) => deel.tekst).join('');
+  const styles: StyleSpan[] = [];
+  let at = 0;
+  for (const part of parts) {
+    const style = (part.stijlen ?? [])
+      .map((stijl) => VAN_STIJL[stijl])
+      .filter((stijl): stijl is InlineStyle => !!stijl && allowed.includes(stijl));
+    if (part.tekst && style.length) {
+      const nth = places(content, part.tekst).indexOf(at);
+      if (nth >= 0) styles.push({ text: part.tekst, style, ...(nth > 0 ? { nth } : {}) });
+    }
+    at += part.tekst.length;
+  }
+  return { content, styles };
+}
+
+function titelVeld(
+  waarde: Titel | undefined,
+  field: FrontmatterField
+): { text: string | null; italics: Frontmatter['italics'] } {
+  if (!waarde) return { text: null, italics: [] };
+  const { content, styles } = fromTekst(waarde, ['italic']);
+  return { text: content || null, italics: italicsOfStyles(field, styles) };
+}
+
+function italicsOfStyles(field: FrontmatterField, styles: StyleSpan[]): Frontmatter['italics'] {
+  return styles.filter((span) => span.style.includes('italic')).map((span) => ({ field, text: span.text }));
+}
+
+function assetFileName(item: Asset, used: Set<string>): string {
+  const fromPath = (item.bestand ?? '').replace(/^.*\//, '');
+  const ext = fromPath.includes('.')
+    ? fromPath.slice(fromPath.lastIndexOf('.'))
+    : item.mimeType === 'image/png'
+      ? '.png'
+      : '.jpeg';
+  const base = (fromPath.replace(/\.[^.]+$/, '') || item.id || 'beeld').slice(0, 120);
+  let name = `${base}${ext}`;
+  let n = 2;
+  while (used.has(name)) {
+    name = `${base}-${n}${ext}`;
+    n++;
+  }
+  used.add(name);
+  return name;
+}
+
+/**
+ * Een asset als bitmap in de job. Breedte, hoogte en plek op de pagina kent het
+ * pakket maar half; wat ontbreekt wordt niet verzonnen als meetwaarde van de
+ * PDF, maar wel zo ingevuld dat de beeldregels het niet als een lijntje
+ * wegzetten. Het is beeld uit het pakket, geen scan.
+ */
+function extracted(item: Asset, name: string): ExtractedImage {
+  const width = item.breedte && item.breedte > 0 ? item.breedte : 100;
+  const height = item.hoogte && item.hoogte > 0 ? item.hoogte : 100;
+  return {
+    id: item.id,
+    page: item.bron?.paginas?.[0] ?? 1,
+    file: name,
+    thumb: name,
+    width,
+    height,
+    placed: { x: 0, y: 0, w: width, h: height },
+    areaPct: 10,
+    dpi: 72
+  };
 }
 
 /**

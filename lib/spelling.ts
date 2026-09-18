@@ -138,7 +138,23 @@ export function strayLetters(text: string): string[] {
     const letter = match[1];
     if (ECHT.has(letter)) continue;
     const at = match.index ?? 0;
-    out.push(text.slice(Math.max(0, at - 24), at + 25).replace(/\s+/g, ' ').trim());
+    out.push(stukRond(text, at));
   }
   return out;
 }
+
+/**
+ * Een stuk rond de letter, tot aan woordgrenzen. Anders begint de melding
+ * midden in "mensen" en houdt hij op midden in "heen", en is hij in het
+ * artikel niet meer als eigen woord te vinden.
+ */
+function stukRond(text: string, at: number, straal = 24): string {
+  let begin = Math.max(0, at - straal);
+  let einde = Math.min(text.length, at + straal + 1);
+  while (begin > 0 && WOORDTEKEN.test(text[begin]!)) begin--;
+  if (begin > 0 && !WOORDTEKEN.test(text[begin]!)) begin++;
+  while (einde < text.length && WOORDTEKEN.test(text[einde - 1]!)) einde++;
+  return text.slice(begin, einde).replace(/\s+/g, ' ').trim();
+}
+
+const WOORDTEKEN = /[\p{L}\p{N}'’.-]/u;

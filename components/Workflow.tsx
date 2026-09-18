@@ -90,7 +90,7 @@ export function Workflow({
 }: {
   steps: WorkflowStep[];
   totals: Totals | null;
-  phase: "idle" | "rendering" | "ready" | "running" | "done" | "error";
+  phase: "idle" | "rendering" | "importing" | "ready" | "running" | "done" | "error";
   thumbs: string[];
   jobId: string | null;
   frontmatter: Frontmatter | null;

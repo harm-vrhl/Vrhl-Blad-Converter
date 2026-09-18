@@ -1,24 +1,25 @@
 /**
  * Het vangnet bij het verbouwen: rekent de deterministische stappen door op de
  * oude jobs en magazines in `.data/jobs/` en vergelijkt de uitkomst met een
- * vastgelegde hash. Kost geen tokens.
+ * vastgelegde hash. Kost geen tokens. Alles lokaal, niets daarvan gaat naar git.
  *
- *   npm run golden            vergelijk met scripts/golden.json
+ *   npm run golden            vergelijk met .data/golden.json
  *   npm run golden -- --update  leg de huidige uitkomst vast
  *
  * In golden.json staan alleen hashes, geen artikeltekst. Bij een verschil wordt
  * de nieuwe uitkomst in `.data/golden-diff/` gezet, zodat je kunt zien wat er
- * anders is. De jobs zelf staan alleen op deze computer.
+ * anders is.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { livePreview } from '../components/article/preview';
 import { workflowSteps, type StatusLine } from '../components/article/steps';
+import { zoekInArtikel } from '../components/article/zoek';
 import { pageLabel, pageRange, summarizeSkipped } from '../components/magazine/labels';
-import { toPackage } from '../lib/canonical';
+import { fromPackage, toPackage } from '../lib/canonical';
 import { compileArticle, frameTitlesAsHeadings } from '../lib/compile';
-import { controleer, oordeel } from '../lib/controle';
+import { controleer, oordeel, tekstOvereenkomst, woordTelling } from '../lib/controle';
 import { boxOnly, rescueBoxed } from '../lib/imagefilter';
 import { stitch } from '../lib/magazine/stitch';
 import { docxDelen } from '../lib/docx';
@@ -27,10 +28,11 @@ import { toMdx } from '../lib/mdx';
 import { groupPictures, type Picture } from '../lib/pictures';
 import type { StoredJob } from '../lib/client/db';
 import type { ExtractedImage, Frontmatter, ImageVerdict, OcrPage, PageResult } from '../lib/types';
+import { unzipStored, zip } from '../lib/zip';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const JOBS = path.join(ROOT, '.data/jobs');
-const STORE = path.join(ROOT, 'scripts/golden.json');
+const STORE = path.join(ROOT, '.data/golden.json');
 const DIFF = path.join(ROOT, '.data/golden-diff');
 
 type Outputs = Record<string, unknown>;
@@ -77,6 +79,16 @@ function article(dir: string): Outputs | null {
     out.frameTitles = framed;
     const pakket = attempt(() => toPackage(framed, { images, pages, generatedAt: '2000-01-01T00:00:00.000Z' }));
     out.package = pakket;
+    if (pakket && typeof pakket === 'object' && !('threw' in pakket)) {
+      out.fromPackage = attempt(() => fromPackage(pakket as Parameters<typeof fromPackage>[0]));
+      out.zipRoundtrip = attempt(() => {
+        const bytes = zip([{ path: 'pakket.json', data: new TextEncoder().encode(`${JSON.stringify(pakket)}\n`) }]);
+        const entries = unzipStored(bytes);
+        const json = entries.find((entry) => entry.path === 'pakket.json');
+        if (!json) throw new Error('pakket.json ontbreekt in de ZIP');
+        return fromPackage(JSON.parse(new TextDecoder().decode(json.data)) as Parameters<typeof fromPackage>[0]);
+      });
+    }
     out.mdx = attempt(() => toMdx(pakket as Parameters<typeof toMdx>[0]));
     // HTML en Word, net als MDX uit het pakket. Het beeld is een pad of een leeg
     // bestand: wat telt is waar het staat en hoe het is ingepakt, niet de pixels.
@@ -84,17 +96,32 @@ function article(dir: string): Outputs | null {
     // Wat de Controle-tab zou melden, en het oordeel. Geen tekst van het artikel,
     // alleen wat er gemeld wordt en hoe erg: dat is wat niet ongemerkt mag verschuiven.
     out.controle = attempt(() => {
+      const ocr = read<OcrPage[]>(dir, 'ocr.json') ?? [];
       const bevindingen = controleer({
         document: framed,
         pages,
-        ocr: read<OcrPage[]>(dir, 'ocr.json') ?? [],
+        ocr,
         images,
         verdicts
       });
+      const ocrVan = new Map(ocr.map((o) => [o.page, o]));
       return {
         oordeel: oordeel(bevindingen, new Set()),
-        bevindingen: bevindingen.map((b) => [b.ernst, b.soort, b.pagina, b.id])
+        bevindingen: bevindingen.map((b) => [b.ernst, b.soort, b.pagina, b.id]),
+        overeenkomst: tekstOvereenkomst(pages, ocr),
+        telling: pages.map((p) => {
+          const t = woordTelling(p, ocrVan.get(p.page));
+          return [p.page, t.klopt, t.totaal, t.ontbreekt, t.waarom];
+        })
       };
+    });
+    // De zoekbalk telt treffers in leesvolgorde. Een vast woord, compact: aantal
+    // en waar de eerste en laatste staan, zodat de veldvolgorde niet verschuift.
+    out.zoek = attempt(() => {
+      const hits = zoekInArtikel(framed, 'de');
+      const steek = (hit: (typeof hits)[number] | undefined) =>
+        hit ? [hit.nth, hit.markeer, hit.zoek.slice(0, 40)] : null;
+      return { aantal: hits.length, eerste: steek(hits[0]), laatste: steek(hits.at(-1)) };
     });
     out.docx = attempt(() =>
       Object.fromEntries(
@@ -203,7 +230,7 @@ for (const dir of readdirSync(JOBS).sort()) {
 
 if (update) {
   writeFileSync(STORE, JSON.stringify(current, null, 2) + '\n');
-  console.log(`${Object.keys(current).length} uitkomsten vastgelegd in scripts/golden.json`);
+  console.log(`${Object.keys(current).length} uitkomsten vastgelegd in .data/golden.json`);
   process.exit(0);
 }
 

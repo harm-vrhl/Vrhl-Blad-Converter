@@ -46,9 +46,9 @@ Je sleept een PDF in de dropzone. De browser doet per pagina:
 Alles wordt per pagina **in de browser bewaard** (IndexedDB, `lib/client/db.ts`)
 als een **job**. Er gaat nog niets naar de server.
 
-### Stap 2. Convert: de run (`runArticle` in `lib/client/run.ts`)
+### Stap 2. Omzetten: de run (`runArticle` in `lib/client/run.ts`)
 
-Je klikt op *Convert*. Het artikel wordt geschreven door de aanbieder uit
+Je klikt op *Omzetten*. Het artikel wordt geschreven door de aanbieder uit
 `AI_PROVIDER`; de keuze per run tussen OpenAI en Mistral staat uit
 (`AI_PROVIDER_CHOICE=true` zet hem terug). De browser regelt
 de run: elke stap is een eigen kort verzoek aan de server, met alleen wat die stap
@@ -119,13 +119,15 @@ platte `content`-lijst.
   corrigeren, blokken te verslepen met de greep links van elk blok, ook een kader
   in en uit, met een knop
   terug naar het AI-resultaat), *JSON* (de canonieke
-  `pakket.json`, alleen-lezen), *Controle* (één oordeel bovenaan, daaronder wat
-  moet opgelost en wat nagekeken moet worden, met de zin uit het artikel naast de
-  regel uit de PDF; afvinken met *Klopt zo*, *Naar de plek* springt naar de tekst.
+  `pakket.json`, alleen-lezen), *Controle* (bovenaan hoeveel woorden uit het
+  artikel in de PDF staan, als telling, daaronder wat moet opgelost en wat
+  nagekeken moet worden, met de zin uit het artikel naast de regel uit de PDF;
+  afvinken met *Klopt zo*, *Naar de plek* springt naar de tekst.
   Dekking per pagina, het beeld uit de PDF en technische meldingen staan ingeklapt
   onder *Ter informatie*).
 - **Pakket**: het artikel als **Vrhl Content Package** (`toPackage`, `pakket.json`
-  plus beeld in een ZIP). MDX is alleen nog een export, uit dat pakket geschreven (`toMdx`).
+  plus beeld). Lokaal bewaren is `.blad`: datzelfde pakket plus de paginascan
+  (Controle). MDX is alleen nog een export, uit dat pakket geschreven (`toMdx`).
 - **Vrhl-Blad-Studio** (Sanity eronder): het pakket gaat als **concept** naar het CMS, nooit live.
 
 ---

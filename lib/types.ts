@@ -94,6 +94,10 @@ export interface IndexCheck {
   overused: Array<{ word: string; used: number; available: number }>;
   /** Share of output words backed by the OCR. */
   score: number;
+  /** Output words that the OCR also has. */
+  backed: number;
+  /** Words in the output. */
+  used: number;
 }
 
 // ─── Images ripped straight out of the PDF ──────────────────────────────────
@@ -335,6 +339,12 @@ export interface Job {
    * judgement tell the article's own pictures from an advert on the same page.
    */
   context?: ArticleContext;
+  /**
+   * Hoe dit artikel in de opslag kwam. Afwezig is een PDF, zoals altijd; `pakket`
+   * is een eerder bewaard .blad-bestand. Omzetten staat dan uit: de pagina's die
+   * meekwamen zijn om te kijken, niet om opnieuw om te zetten.
+   */
+  origin?: 'pakket';
 }
 
 export interface ArticleContext {

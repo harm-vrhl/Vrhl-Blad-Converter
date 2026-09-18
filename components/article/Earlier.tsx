@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
+import { WisOpslag } from "@/components/article/WisOpslag";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { StoredJob } from "@/lib/client/db";
+import { isPakketJob } from "@/lib/client/import";
 
 /**
  * Wat er in deze browser eerder is omgezet. Het staat alleen hier, op deze
@@ -34,14 +36,17 @@ export function Earlier({
   /** Het artikel waarvoor de vraag "zeker weten?" open staat. */
   const [confirming, setConfirming] = useState<StoredJob | null>(null);
   return (
-    <section className="mt-10 w-full" aria-label="Eerder omgezet">
-      <header className="mb-2 flex items-baseline justify-between gap-4">
+    <section className="mt-10 w-full" aria-label="Eerder omgezet" data-tour="earlier">
+      <header className="mb-2 flex items-center justify-between gap-4">
         <h3 className="text-sm font-medium">Eerder omgezet</h3>
-        {storage ? (
-          <span className="text-xs text-muted-foreground">
-            {megabytes(storage.usage)} in deze browser
-          </span>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {storage ? (
+            <span className="text-xs text-muted-foreground">
+              {megabytes(storage.usage)} in deze browser
+            </span>
+          ) : null}
+          <WisOpslag />
+        </div>
       </header>
       <ul className="divide-y rounded-xl border bg-card">
         {jobs.map((j) => (
@@ -57,7 +62,8 @@ export function Earlier({
               <span className="block truncate text-xs text-muted-foreground">
                 {[
                   new Date(j.createdAt).toLocaleDateString("nl-NL", { day: "numeric", month: "short" }),
-                  `${j.pageCount} pagina's`,
+                  j.pages.length ? `${j.pageCount} pagina's` : null,
+                  isPakketJob(j) ? "geïmporteerd" : null,
                   STATE_LABEL[j.status] ?? j.status,
                   j.edited ? "gecorrigeerd" : null,
                   megabytes(j.bytes),

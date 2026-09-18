@@ -2,10 +2,12 @@
 
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { cn } from "cn";
-import { Loader2, UploadCloud } from "lucide-react";
+import { Loader2, Package, UploadCloud } from "lucide-react";
 import { Earlier } from "@/components/article/Earlier";
+import { WisOpslag } from "@/components/article/WisOpslag";
 import type { Phase } from "@/components/article/useArticleRun";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { deleteOwner, type StoredJob } from "@/lib/client/db";
 import type { RenderStep } from "@/lib/client/render";
 
@@ -39,6 +41,7 @@ export function StartScreen({
   openJob: (jobId: string) => Promise<void>;
   refreshEarlier: () => Promise<void>;
 }) {
+  const busy = phase === "rendering" || phase === "importing";
   return (
     // Scrollt zelf: met de lijst eronder past het startscherm niet altijd, en de
     // pagina als geheel scrollt niet.
@@ -60,11 +63,12 @@ export function StartScreen({
         </Alert>
       ) : null}
       <label
-        htmlFor={phase === "rendering" ? undefined : "pdf-upload"}
-        aria-disabled={phase === "rendering"}
+        data-tour="dropzone"
+        htmlFor={busy ? undefined : "pdf-upload"}
+        aria-disabled={busy}
         onDragOver={(e) => {
           e.preventDefault();
-          if (phase === "rendering") return;
+          if (busy) return;
           setDragging(true);
         }}
         onDragLeave={(e) => {
@@ -74,13 +78,13 @@ export function StartScreen({
         onDrop={(e) => {
           e.preventDefault();
           setDragging(false);
-          if (phase === "rendering") return;
+          if (busy) return;
           const file = e.dataTransfer.files[0];
           if (file) void accept(file);
         }}
         className={cn(
           "mt-10 flex min-h-64 w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-8 py-12 text-center transition-colors",
-          phase === "rendering"
+          phase === "rendering" || phase === "importing"
             ? "cursor-default border-border bg-muted/30 text-muted-foreground"
             : dragging
               ? "cursor-copy border-foreground bg-muted text-foreground"
@@ -93,7 +97,7 @@ export function StartScreen({
             dragging ? "bg-foreground/10" : "bg-muted",
           )}
         >
-          {phase === "rendering" ? (
+          {busy ? (
             <Loader2 className="size-6 animate-spin" />
           ) : (
             <UploadCloud className="size-6" />
@@ -103,25 +107,38 @@ export function StartScreen({
           <span className="text-sm font-medium text-foreground">
             {phase === "rendering"
               ? "Pagina's renderen…"
-              : dragging
-                ? "Laat los om te beginnen"
-                : "Sleep je PDF hierheen"}
+              : phase === "importing"
+                ? "Blad openen…"
+                : dragging
+                  ? "Laat los om te beginnen"
+                  : "Sleep je PDF hierheen"}
           </span>
           <span className="text-xs">
             {phase === "rendering"
               ? renderStep
                 ? `${renderStep.page}/${renderStep.total} · ${renderStep.step}`
                 : "pdf.js leest het bestand"
-              : "of klik om een bestand te kiezen"}
+              : phase === "importing"
+                ? "in deze browser, zonder opnieuw om te zetten"
+                : "of klik om een bestand te kiezen"}
           </span>
         </span>
-        {phase === "rendering" ? null : (
+        {busy ? null : (
           <span className="rounded-md border bg-background px-2 py-0.5 text-[11px] font-medium tracking-wide">
             PDF
           </span>
         )}
       </label>
-      {earlier?.length && phase !== "rendering" ? (
+      {busy ? null : (
+        <Button variant="outline" size="sm" className="mt-4" data-tour="blad" asChild>
+          <label htmlFor="pakket-upload" className="cursor-pointer">
+            <Package className="size-4" />
+            Blad openen
+            <span className="text-muted-foreground">.blad</span>
+          </label>
+        </Button>
+      )}
+      {earlier?.length && !busy ? (
         <Earlier
           jobs={earlier}
           storage={storage}
@@ -131,6 +148,8 @@ export function StartScreen({
             await refreshEarlier();
           }}
         />
+      ) : !busy ? (
+        <WisOpslag auto />
       ) : null}
     </div>
     </div>

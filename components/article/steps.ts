@@ -35,6 +35,17 @@ export function workflowSteps(
   job: StoredJob | null,
 ): Step[] {
   if (!status.length && !job) return [];
+  if (job?.origin === "pakket") {
+    return [
+      {
+        key: "import",
+        label: "Geïmporteerd pakket",
+        kind: "compile",
+        state: "klaar",
+        detail: job.pages.length ? `${job.pageCount} pagina's` : "",
+      },
+    ];
+  }
 
   const last = (run: string, page?: number) =>
     [...status].reverse().find((l) => l.run === run && (page === undefined || l.page === page));

@@ -40,7 +40,7 @@ PDF in de dropzone
   browser: pdf.js rendert elke pagina naar een image
            en ript de ingesloten bitmaps eruit op 300 dpi
   |
-Convert
+Omzetten
   |
   Mistral OCR (1 call) -> woordindex per pagina
   |
@@ -227,7 +227,7 @@ lib/client/once.ts    een betaalde stap één keer betalen: bewaren en bij herva
                       lezen. Gedeeld door de artikel-run en de magazine-analyse
 lib/client/post.ts    verzoeken bouwen (runForm, 4,4 MB-grens) en SSE lezen
 lib/client/limiter.ts het tempo: maximum tegelijk, Mistral 1 start per seconde
-lib/client/exports.ts elke export (JSON, HTML, MDX, Word, PDF, pakket-ZIP) uit hetzelfde
+lib/client/exports.ts elke export (JSON, HTML, MDX, Word, PDF, .blad) uit hetzelfde
                       pakket, in de browser; Sanity in stappen. PDF is de HTML-export,
                       geprint via een iframe: geen PDF in code, want de lettertypen
                       in een PDF kennen ■, pijlen en andere schriften niet
@@ -242,9 +242,11 @@ lib/patch.ts          legt de opmaak over de leesvolgorde heen
 lib/wordindex.ts      de woordindex en zijn controle
 lib/compile.ts        pagina's naar één artikel: naden, quotes, ruis
 lib/canonical.ts      het artikel als Vrhl Content Package 1.0. De enige plek
-                      die dat formaat kent; weet niets van Sanity, MDX of Word
+                      die dat formaat kent; weet niets van Sanity, MDX of Word.
+                      `toPackage` schrijft, `fromPackage` leest een pakket terug
 lib/zip.ts            pakket.json plus het beeld als ZIP, zonder dependency en
-                      zonder compressie, zodat het in de browser draait
+                      zonder compressie, zodat het in de browser draait; `unzip`
+                      leest hem terug (ongecomprimeerd, of deflate)
 lib/mdx.ts            schrijft MDX, en leest daarvoor het PAKKET, niet het
                       artikelobject: het pakket is de bron, MDX een consument
 lib/html.ts           het artikel als één HTML-bestand, ook een consument van het pakket;
@@ -256,7 +258,7 @@ lib/docx.ts           het artikel als Word-document, zonder dependency, op lib/z
 lib/pakketlezen.ts    wat HTML en Word allebei uit het pakket lezen: tekstdelen,
                       creditregel, bijschrift, alleen veilige links
 components/BlockDrag.tsx  blokken verslepen in de Artikel-tab, ook een kader in en uit: greep bij hover,
-                      pointer-events (geen HTML-drag-and-drop), pijltjes, Escape
+                      bolletjes met pijl voor één plek op of neer, pointer-events (geen HTML-drag-and-drop), Escape
 lib/client/edit.ts    leest een correctie uit de Artikel-tab terug naar
                       tekst plus styles, met dezelfde telling als spans.ts
 lib/studio.ts         hoe het CMS heet voor de gebruiker: Vrhl-Blad-Studio. Alles wat een
@@ -284,6 +286,8 @@ lib/client/analyze.ts    magazine: de analyse geregisseerd vanuit de browser
 lib/client/magazine.ts   magazine klein renderen, en een artikel eruit knippen
 lib/client/article.ts    een artikel-PDF inlezen en opslaan, en een run volgen, zonder
                       interface: de losse upload en de magazine-wachtrij delen de code
+lib/client/blad.ts       wat naast pakket.json in een .blad-bestand zit: paginascan en controlestukken
+lib/client/import.ts     een .blad-bestand (artikel, beeld, pagina's) terug in de browseropslag
 lib/llm/chat.ts       één client voor OpenAI en Mistral: fetch, geen SDK, streaming
 lib/llm/ratelimit.ts  houdt zich aan de limieten die Mistral in elk antwoord meldt
 lib/llm/mistral.ts    OCR, alleen woorden, één pagina per call
@@ -295,12 +299,13 @@ components/           Workflow (de zijbalk), ArticleView, MagazineView, Checks (
 components/article/   het artikelscherm uit app/page.tsx: useArticleRun (alle state van
                       een run en de vier resets, die bewust verschillen), useSettings,
                       useSidebar, useExports, en de stukken scherm (AppHeader,
-                      StartScreen, WorkflowSidebar, ExportToolbar, Earlier). steps.ts
-                      en preview.ts zijn rekenen zonder React en staan in npm run golden
+                      StartScreen, WorkflowSidebar, ExportToolbar, Zoekbalk, Earlier).
+                      steps.ts, preview.ts en zoek.ts zijn rekenen zonder React en
+                      staan in npm run golden
 components/magazine/  de magazinestand uit MagazineView: useMagazine (state, analyse,
                       omzetten op de achtergrond), MagazineSidebar, MagazineStart,
                       PageGrid, ArticleRow; labels.ts rekent en staat in npm run golden
-scripts/golden.ts     het vangnet: rekent de vaste stappen door op .data/jobs en vergelijkt
+scripts/golden.ts     het vangnet: rekent de vaste stappen door op .data/jobs, hashes in `.data/golden.json` (niet in git)
 .data/jobs/<id>/      alleen nog oude jobs van vóór de browseropslag; niets leest
                       of schrijft hier meer
 ```
@@ -313,24 +318,37 @@ het, `components/article/useControle.ts` laadt de OCR en onthoudt het afvinken
 
 - **Indelen naar wat de redacteur moet doen**, niet naar waar het vandaan komt:
   *oplossen* (tekst ontbreekt, pagina mislukt), *nakijken* (kan kloppen, kan fout
-  zijn), *info* (telt niet mee). Het oordeel bovenaan en de teller op het tabblad
+  zijn: extra tekst op een gedeelde pagina, verwisseling, naad), *info* (telt niet
+  mee). Het oordeel bovenaan en de teller op het tabblad
   volgen daaruit, en Vrhl-Blad-Studio vraagt bevestiging zolang er iets openstaat.
 - **Een nieuwe regel meet je eerst op de oude jobs** voor hij erin komt. Een melding
   die bij de helft van de artikelen afgaat, wordt genegeerd; dan is de controle
   niet foolproof maar stil. Zo is "vaker gebruikt dan de pagina bevat" (301 keer,
   vooral pull quotes) een dubbele passage van acht woorden geworden, en zijn losse
   letters in de lopende tekst info (alle gevallen waren terecht) maar in de kop
-  nakijken.
+  nakijken. Een onbekend woord ging bij bijna de helft af (afgebroken
+  samenstellingen, markers, één los woord); dat is alleen nog een verwisseling:
+  dezelfde zin in artikel en PDF, op een woord na.
 - **Tekst ontbreekt** is het omgekeerde van woorddekking: hoeveel van de OCR terugkomt
-  in het artikel. Onder de 50% op een pagina met 80+ woorden. Op 316 tekstpagina's
-  waren dat precies de 4 kapotte.
+  in het artikel. Onder de 50% op een pagina met 80+ woorden, én de pagina schreef
+  zelf bijna niets. Op 316 tekstpagina's waren dat precies de 4 kapotte, alle vier
+  met 0 woorden. Schreef de pagina wél een hele kolom en blijft de rest van de OCR
+  over (colofon, advertentie, het artikel ernaast op een gedeelde magazinepagina),
+  dan is het **nakijken**: tekst die niet bij het artikel hoort. Een pagina uit een
+  magazine gaat er heel in; knippen binnen een pagina doen we niet.
 - **Een pagina die mislukt, zegt dat met `PageResult.failed`.** Raad het niet uit een
   lege pagina: een fotopagina is ook leeg. Oude jobs vallen terug op de waarschuwing.
 - **Reken op het artikel zoals het nu is** (`current`, met correcties), waar het kan.
-  Een woord dat de redacteur weghaalt, laat zijn melding verdwijnen.
+  Een woord dat de redacteur weghaalt, laat zijn melding verdwijnen. De telling
+  bovenaan is **klopt/totaal**: woorden uit het artikel die in de woordindex van
+  de PDF staan. Hoe vaak een woord herhaald wordt (citaat, bijschrift) telt niet;
+  alleen of het in de index voorkomt. Woorden die ontbreken staan als aanklikbare
+  lijst bij die telling, geen aparte nakijken-kaarten.
 - **Naar de plek zoekt op tekst** (`naarPlek`), niet op blok-id: blokken hebben geen
   vast id en verschuiven bij slepen. Geef een bevinding een `zoek` die letterlijk
-  in de Artikel-tab staat.
+  in de Artikel-tab staat. De zoekbalk telt hetzelfde (`zoek.ts`) en springt met
+  `naarZoek` naar de n-de treffer in het scherm, zodat hetzelfde woord in twee
+  dezelfde alinea's allebei een plek heeft.
 - **Een beeld in het artikel draagt het id van zijn blok** (`p3-02`), niet dat van de
   bitmap. Koppel op `file`.
 
@@ -403,10 +421,11 @@ npm run build
 
 `npm run golden` rekent compileren, het pakket, MDX, HTML, Word, de beeldregels en `stitch`
 door op de oude jobs en magazines in `.data/jobs/` en vergelijkt de uitkomst met
-de hashes in `scripts/golden.json`. Het kost geen tokens. Wijkt er iets af, dan
-staat de nieuwe uitkomst in `.data/golden-diff/`. Is dat verschil de bedoeling,
-leg het dan vast met `npm run golden -- --update`, in dezelfde commit als de
-wijziging. Bij verhuizen of opsplitsen van code mag er niets afwijken.
+de hashes in `.data/golden.json`. Jobs, hashes en diffs blijven op deze computer,
+ze gaan niet naar git. Wijkt er iets af, dan staat de nieuwe uitkomst in
+`.data/golden-diff/`. Is dat verschil de bedoeling, leg het dan vast met
+`npm run golden -- --update`. Bij verhuizen of opsplitsen van code mag er niets
+afwijken.
 
 Een volledige run kost geld: ongeveer 14 runs en 69k tokens voor een artikel van
 zes pagina's. Doe dat alleen als het nodig is.

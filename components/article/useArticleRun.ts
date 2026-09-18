@@ -18,6 +18,7 @@ import {
   type StoredJob,
   type Totals,
 } from "@/lib/client/db";
+import { importPackage, isPakketBestand } from "@/lib/client/import";
 import type { RenderStep } from "@/lib/client/render";
 import { frameTitlesAsHeadings } from "@/lib/compile";
 import { boxOnly } from "@/lib/imagefilter";
@@ -31,7 +32,7 @@ import type {
 } from "@/lib/types";
 import { errorMessage } from "@/lib/util";
 
-export type Phase = "idle" | "rendering" | "ready" | "running" | "done" | "error";
+export type Phase = "idle" | "rendering" | "importing" | "ready" | "running" | "done" | "error";
 export type Tab = "paginas" | "artikel" | "json" | "checks";
 
 type Step = WorkflowStep;
@@ -85,12 +86,7 @@ export function useArticleRun({
   /** Het afgeronde artikel met de correcties erin: wat de exports krijgen. */
   const current = edited ?? doc;
 
-  const accept = useCallback(async (file: File, opening?: number): Promise<StoredJob | null> => {
-    if (!file.name.toLowerCase().endsWith(".pdf")) {
-      setNotice("Alleen PDF-bestanden.");
-      return null;
-    }
-    setPhase("rendering");
+  const resetWorkspace = () => {
     setNotice(null);
     setStatus([]);
     setTotals(null);
@@ -105,6 +101,56 @@ export function useArticleRun({
     setJob(null);
     setThumbs([]);
     setRenderStep(null);
+  };
+
+  const openPakket = useCallback(async (file: File): Promise<StoredJob | null> => {
+    setPhase("importing");
+    resetWorkspace();
+    setTab("artikel");
+    try {
+      const { job: landed, missing, extra } = await importPackage(file);
+      const saved = (await getData<PageResult[]>(landed.id, "pages.json")) ?? [];
+      const pageThumbs = await Promise.all(landed.pages.map((p) => fileUrl(landed.id, p.thumb)));
+      setJob(landed);
+      setThumbs(pageThumbs.filter((url): url is string => !!url));
+      setResults(Object.fromEntries(saved.map((p) => [p.page, p])));
+      setVerdicts(landed.verdicts ?? []);
+      setFrontmatter(landed.document?.frontmatter ?? null);
+      setDoc(landed.document);
+      setPhase("done");
+      setView("artikel");
+      const hints: string[] = [];
+      if (missing.length) {
+        hints.push(
+          missing.length === 1
+            ? `Het beeld ${missing[0]} zat niet in het pakket.`
+            : `${missing.length} beelden zaten niet in het pakket.`,
+        );
+      }
+      if (extra) {
+        hints.push(
+          extra === 1
+            ? "Dit pakket heeft nog een artikel; alleen het eerste is geopend."
+            : `Dit pakket heeft nog ${extra} artikelen; alleen het eerste is geopend.`,
+        );
+      }
+      if (hints.length) setNotice(hints.join(" "));
+      return landed;
+    } catch (err) {
+      setNotice(errorMessage(err));
+      setPhase("idle");
+      return null;
+    }
+  }, [setView]);
+
+  const accept = useCallback(async (file: File, opening?: number): Promise<StoredJob | null> => {
+    if (isPakketBestand(file)) return openPakket(file);
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      setNotice("Een PDF om om te zetten, of een eerder bewaard .blad-bestand.");
+      return null;
+    }
+    setPhase("rendering");
+    resetWorkspace();
     setTab("paginas");
 
     try {
@@ -124,12 +170,12 @@ export function useArticleRun({
       setPhase("error");
       return null;
     }
-  }, []);
+  }, [openPakket]);
 
   /** Resolves true when the run reached its end with an article. */
   const convert = useCallback(async (resume = false): Promise<boolean> => {
     const run = job;
-    if (!run) return false;
+    if (!run || run.origin === "pakket") return false;
     let finished = false;
     setPhase("running");
     setStatus([]);

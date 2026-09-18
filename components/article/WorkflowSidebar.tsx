@@ -59,6 +59,7 @@ export function WorkflowSidebar({
       ) : null}
       <aside
         id="workflow-sidebar"
+        data-tour="workflow"
         aria-label="Omzetten"
         inert={!sidebarOpen}
         className={cn(

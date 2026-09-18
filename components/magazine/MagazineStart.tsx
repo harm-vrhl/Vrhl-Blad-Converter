@@ -3,6 +3,7 @@
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { cn } from "cn";
 import { BookOpen } from "lucide-react";
+import { WisOpslag } from "@/components/article/WisOpslag";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 /** Het startscherm van de magazinestand: de vraag en het sleepvak. */
@@ -32,6 +33,7 @@ export function MagazineStart({
         </Alert>
       ) : null}
       <label
+        data-tour="dropzone"
         htmlFor="magazine-upload"
         onDragOver={(e) => {
           e.preventDefault();
@@ -65,6 +67,7 @@ export function MagazineStart({
         </span>
         <span className="rounded-md border bg-background px-2 py-0.5 text-[11px] font-medium tracking-wide">PDF</span>
       </label>
+      <WisOpslag auto />
       <input
         id="magazine-upload"
         className="sr-only"

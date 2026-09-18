@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Check, Copy, RotateCcw } from "lucide-react";
 import { ArticleView } from "@/components/ArticleView";
 import { AppHeader } from "@/components/article/AppHeader";
@@ -10,9 +10,12 @@ import { useArticleRun, type Tab } from "@/components/article/useArticleRun";
 import { useExports } from "@/components/article/useExports";
 import { useSettings } from "@/components/article/useSettings";
 import { useSidebar } from "@/components/article/useSidebar";
+import { isPakketJob } from "@/lib/client/import";
 import { STUDIO, STUDIO_GELUKT } from "@/lib/studio";
 import { useControle } from "@/components/article/useControle";
-import { naarPlek } from "@/components/article/naarPlek";
+import { UitlegKnop } from "@/components/article/Uitleg";
+import { Zoekbalk } from "@/components/article/Zoekbalk";
+import { naarPlek, naarZoek } from "@/components/article/naarPlek";
 import { WorkflowSidebar } from "@/components/article/WorkflowSidebar";
 import { Checks } from "@/components/Checks";
 import { MagazineView } from "@/components/MagazineView";
@@ -76,12 +79,12 @@ export default function Home() {
     closeJob,
     refreshEarlier,
   } = useArticleRun({ provider, setSettings, setProvider, setView });
-  const uploadDisabled = phase === "rendering" || phase === "running" || converting;
+  const uploadDisabled = phase === "rendering" || phase === "importing" || phase === "running" || converting;
   const showMagazine = mode === "magazine" && view === "magazine";
 
   // Een run leeft in dit tabblad. Wie het sluit, stopt hem; dat mag niet per ongeluk.
   useEffect(() => {
-    if (phase !== "running" && phase !== "rendering" && !converting) return;
+    if (phase !== "running" && phase !== "rendering" && phase !== "importing" && !converting) return;
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
@@ -91,22 +94,24 @@ export default function Home() {
   }, [phase, converting]);
 
   const modeSwitch = (
-    <SegmentedControl
-      aria-label="Soort PDF"
-      value={mode}
-      disabled={uploadDisabled}
-      onChange={(next) => {
-        setMode(next);
-        if (next === "magazine") {
-          setMagazineOpened(true);
-          setView("magazine");
-        }
-      }}
-      options={[
-        { id: "artikel", label: "Eén artikel" },
-        { id: "magazine", label: "Volledig magazine" },
-      ]}
-    />
+    <div data-tour="mode">
+      <SegmentedControl
+        aria-label="Soort PDF"
+        value={mode}
+        disabled={uploadDisabled}
+        onChange={(next) => {
+          setMode(next);
+          if (next === "magazine") {
+            setMagazineOpened(true);
+            setView("magazine");
+          }
+        }}
+        options={[
+          { id: "artikel", label: "Eén artikel" },
+          { id: "magazine", label: "Volledig magazine" },
+        ]}
+      />
+    </div>
   );
 
 
@@ -129,16 +134,24 @@ export default function Home() {
     await pushSanity();
   };
 
-  const springNaar = async (zoek: string) => {
+  const springNaar = async (zoek: string, markeer?: string, nth?: number) => {
     setTab("artikel");
-    const gevonden = await naarPlek(zoek);
+    const gevonden = await naarPlek(zoek, markeer, nth);
     if (!gevonden) {
       setNotice("Deze plek is niet meer te vinden in het artikel. Misschien is de tekst al aangepast.");
     }
   };
 
-  const idle = !job && phase !== "rendering";
-  const workspace = !showMagazine && !(idle || (phase === "rendering" && !job));
+  const springZoek = useCallback(
+    (query: string, index: number, flits: boolean) => {
+      setTab("artikel");
+      void naarZoek(query, index, flits);
+    },
+    [setTab]
+  );
+
+  const idle = !job && phase !== "rendering" && phase !== "importing";
+  const workspace = !showMagazine && !(idle || ((phase === "rendering" || phase === "importing") && !job));
   const noticeOk = !!notice && notice.startsWith(STUDIO_GELUKT);
 
   return (
@@ -162,6 +175,18 @@ export default function Home() {
         setProvider={setProvider}
         converting={converting}
         convert={convert}
+        uitleg={
+          <UitlegKnop
+            auto={idle && earlier !== null && earlier.length === 0}
+            openSidebar={() => setSidebarOpen(true)}
+            naarArtikel={() => setTab("artikel")}
+          />
+        }
+        zoek={
+          !showMagazine && preview && job ? (
+            <Zoekbalk key={job.id} doc={preview} onSpring={springZoek} />
+          ) : null
+        }
       />
 
       <input
@@ -169,6 +194,18 @@ export default function Home() {
         className="sr-only"
         type="file"
         accept=".pdf,application/pdf"
+        disabled={uploadDisabled}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void accept(file);
+          e.target.value = "";
+        }}
+      />
+      <input
+        id="pakket-upload"
+        className="sr-only"
+        type="file"
+        accept=".blad,.zip,application/zip"
         disabled={uploadDisabled}
         onChange={(e) => {
           const file = e.target.files?.[0];
@@ -189,7 +226,7 @@ export default function Home() {
         </div>
       ) : null}
 
-      {showMagazine ? null : idle || (phase === "rendering" && !job) ? (
+      {showMagazine ? null : idle || ((phase === "rendering" || phase === "importing") && !job) ? (
         <StartScreen
           mode={mode}
           modeSwitch={modeSwitch}
@@ -234,12 +271,15 @@ export default function Home() {
 
           {status.length || totals || phase === "running" || phase === "done" ? (
             <div className="mb-8 flex flex-wrap items-center gap-2">
-              <SegmentedControl
-                aria-label="Weergave"
-                value={tab}
-                onChange={(next) => setTab(next)}
-                options={(["paginas", "artikel", "json", "checks"] as Tab[]).map(
-                  (t) => ({
+              <div data-tour="tabs">
+                <SegmentedControl
+                  aria-label="Weergave"
+                  value={tab}
+                  onChange={(next) => setTab(next)}
+                  options={(job && isPakketJob(job) && !job.pages.length
+                    ? (["artikel", "json", "checks"] as Tab[])
+                    : (["paginas", "artikel", "json", "checks"] as Tab[])
+                  ).map((t) => ({
                     id: t,
                     label:
                       t === "checks" && doc ? (
@@ -251,9 +291,9 @@ export default function Home() {
                         LABELS[t]
                       ),
                     disabled: ALWAYS.includes(t) ? false : !doc,
-                  }),
-                )}
-              />
+                  }))}
+                />
+              </div>
               <span className="flex-1" />
               {doc ? (
                 <ExportToolbar
@@ -291,7 +331,7 @@ export default function Home() {
                         onClick={() => setEdited(null)}
                       >
                         <RotateCcw className="size-3.5" />
-                        Terug naar AI-resultaat
+                        Terug naar {isPakketJob(job) ? "het pakket" : "AI-resultaat"}
                       </Button>
                     </>
                   ) : doc ? (
@@ -307,6 +347,7 @@ export default function Home() {
                   </span>
                 </div>
                 <div
+                  data-tour="artikel"
                   className="overflow-hidden rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.04)] ring-1 ring-black/5"
                   data-running={phase === "running" ? "true" : undefined}
                 >
@@ -355,10 +396,13 @@ export default function Home() {
               verdicts={verdicts}
               bevindingen={controle.bevindingen}
               oordeel={controle.oordeel}
+              overeenkomst={controle.overeenkomst}
               nagekeken={controle.nagekeken}
               ocrBeschikbaar={controle.ocrBeschikbaar}
+              ocr={controle.ocr}
               onToggle={controle.toggle}
-              onNaarPlek={(zoek) => void springNaar(zoek)}
+              onNaarPlek={(zoek, markeer, nth) => void springNaar(zoek, markeer, nth)}
+              current={current}
             />
           ) : null}
 
@@ -406,7 +450,7 @@ export default function Home() {
 /** Hoeveel er nog openstaat, in de kleur van het oordeel, naast het tabblad Controle. */
 function TellerControle({ stand, open }: { stand: "oplossen" | "nakijken" | "klaar"; open: number }) {
   if (stand === "klaar") {
-    return <span aria-label="alles in orde" className="size-1.5 rounded-full bg-emerald-500" />;
+    return null;
   }
   return (
     <span

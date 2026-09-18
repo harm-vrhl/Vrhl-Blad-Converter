@@ -1,5 +1,6 @@
 'use client';
 
+import { activityStamp } from './activity';
 import { LIMIT_HEADER } from '../deadline';
 
 /**
@@ -16,7 +17,7 @@ export const BODY_LIMIT = Math.floor(4.4 * 1024 * 1024);
 
 export class TooLarge extends Error {}
 
-export function runForm(input: object, files: Record<string, Blob> = {}, what = 'dit verzoek'): FormData {
+export function runForm(input: object, files: Record<string, Blob> = {}, what = 'dit verzoek', task?: string): FormData {
   const json = JSON.stringify(input);
   const size = new Blob([json]).size + Object.values(files).reduce((n, blob) => n + blob.size, 0);
   if (size > BODY_LIMIT) {
@@ -26,6 +27,7 @@ export function runForm(input: object, files: Record<string, Blob> = {}, what = 
   }
   const form = new FormData();
   form.set('input', json);
+  form.set('activity', JSON.stringify(activityStamp(task)));
   for (const [name, blob] of Object.entries(files)) form.set(`file:${name}`, blob, name);
   return form;
 }
