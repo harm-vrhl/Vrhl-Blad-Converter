@@ -1,5 +1,5 @@
+import { requireKeys, stepJson, usageOf } from '@/lib/server/run';
 import { checkMistral, newLedger } from '@/lib/llm/chat';
-import { json, readRun, requireKeys, usageOf } from '@/lib/server/run';
 
 export const runtime = 'nodejs';
 
@@ -9,8 +9,7 @@ export const runtime = 'nodejs';
  * dan na de OCR.
  */
 export async function POST(request: Request) {
-  return json(async () => {
-    const run = await readRun<object>(request);
+  return stepJson(request, async (run) => {
     requireKeys(run.provider);
     const ledger = newLedger(run.provider);
     if (run.provider === 'mistral') await checkMistral(ledger);

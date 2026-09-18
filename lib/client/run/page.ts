@@ -19,7 +19,7 @@ import type {
 } from '../../types';
 import { errorMessage, EventQueue, pad2 } from '../../util';
 import { getData, putData } from '../db';
-import { postJson, postStream, runForm } from '../post';
+import { postJson, postStream } from '../post';
 import type { RunContext } from './context';
 
 const TAIL = 300;
@@ -86,7 +86,7 @@ interface PageJob {
  * with it; what it quotes is placed once both are in.
  */
 async function processPage(ctx: RunContext, context: string, page: PageJob): Promise<PageResult> {
-  const { id, provider, chat, add, files } = ctx;
+  const { id, provider, chat, add, files, form } = ctx;
   const { asset, emit } = page;
   const n = asset.page;
   const stored = await getData<{ result: PageResult; usage: RunUsage[] }>(id, `run/page-p${pad2(n)}`);
@@ -135,7 +135,7 @@ async function processPage(ctx: RunContext, context: string, page: PageJob): Pro
     styling = chat(async () =>
       postJson<{ fragments: StyleFragment[]; usage: RunUsage }>(
         '/api/run/styling',
-        runForm({ provider, page: n, images: names }, await files(names), `De uitsneden van pagina ${n}`)
+        form({ provider, page: n, images: names }, await files(names), `De uitsneden van pagina ${n}`)
       )
     )
       .then(({ fragments, usage: spent }) => {
@@ -159,7 +159,7 @@ async function processPage(ctx: RunContext, context: string, page: PageJob): Pro
   await chat(async () =>
     postStream<RunEvent | { type: 'structure'; blocks: Block[]; continuity: Continuity; check: IndexCheck; usage: RunUsage }>(
       '/api/run/page',
-      runForm(
+      form(
         { provider, page: n, image: asset.image, markdown, images: page.images, boxOnly: page.boxOnly, previousTail: page.previousTail, context },
         await files([asset.image]),
         `Pagina ${n}`

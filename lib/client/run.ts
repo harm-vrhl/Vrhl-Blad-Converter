@@ -4,8 +4,9 @@ import { compileArticle } from '../compile';
 import { rescueBoxed } from '../imagefilter';
 import type { RunEvent } from '../types';
 import { errorMessage } from '../util';
+import { beginTaak, eindTaak } from './activity';
 import { deleteData, loadJob, putData, saveJob, type StoredJob, type Totals } from './db';
-import { postJson, runForm } from './post';
+import { postJson } from './post';
 import { runContext } from './run/context';
 import { checkHeadline, readOpening } from './run/opening';
 import { describe, runPages } from './run/page';
@@ -46,25 +47,54 @@ export async function* runArticle(
   job.error = null;
   await saveJob(job);
 
+  const task = beginTaak({
+    taak: 'artikel.omzetten',
+    titel: job.filename,
+    pages: job.pageCount,
+    job: job.id
+  });
   try {
-    yield* article(job, provider, started);
+    yield* article(job, provider, started, task);
+    eindTaak(task, 'ok', {
+      taak: 'artikel.omzetten',
+      titel: job.filename,
+      pages: job.pageCount,
+      job: job.id,
+      error: job.error,
+      ms: job.totals?.ms,
+      usage: job.totals
+        ? {
+            calls: job.totals.runs,
+            tokens: job.totals.tokens,
+            cost: job.totals.cost?.total,
+            currency: job.totals.cost?.currency
+          }
+        : undefined
+    });
   } catch (err) {
     const message = errorMessage(err);
     job.status = 'error';
     job.error = message;
     await saveJob(job).catch(() => undefined);
+    eindTaak(task, 'fail', {
+      taak: 'artikel.omzetten',
+      titel: job.filename,
+      pages: job.pageCount,
+      job: job.id,
+      error: message
+    });
     // A status without a page number is what the interface treats as the end of
     // the run, so a failure has to arrive in that shape to be seen at all.
     yield { type: 'status', run: 'fout', state: 'fail', detail: message };
   }
 }
 
-async function* article(job: StoredJob, provider: 'openai' | 'mistral', started: number): AsyncGenerator<RunEvent, void, void> {
-  const ctx = await runContext(job, provider);
-  const { id, chat, assets, bill } = ctx;
+async function* article(job: StoredJob, provider: 'openai' | 'mistral', started: number, task: string): AsyncGenerator<RunEvent, void, void> {
+  const ctx = await runContext(job, provider, task);
+  const { id, chat, assets, bill, form } = ctx;
 
   // Before the OCR is paid for: may this key have Mistral write at all?
-  await chat(() => postJson('/api/run/check', runForm({ provider })));
+  await chat(() => postJson('/api/run/check', form({ provider })));
 
   const { read, ocrByPage } = yield* readWords(ctx);
   const { frontmatter, approved, boxed } = yield* readOpening(ctx, ocrByPage);

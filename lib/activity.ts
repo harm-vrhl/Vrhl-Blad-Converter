@@ -1,14 +1,16 @@
 /**
- * Het logboek: welke taken gebruikers uitvoeren, zonder artikeltekst, PDF of
- * wachtwoorden. Rekenen, geen I/O; de server bewaart, de interface tekent.
+ * Wat er in de serverlog over een taak mag staan: wie, wat, hoe lang, wat het
+ * kostte. Geen artikeltekst, geen PDF, geen wachtwoorden. Rekenen, geen I/O
+ * (staat in npm run golden); de server schrijft de regel, de browser meldt
+ * alleen het begin en einde van een taak.
  *
  * Twee lagen:
  *   taak   wat iemand deed (artikel omzetten, magazine analyseren, inloggen)
  *   stap   wat de server daarvoor aanriep (OCR, leesvolgorde, paginascan)
  *
- * Een taak heeft een `task`-id; stappen van dezelfde run dragen hetzelfde id,
- * zodat het logboek ze onder die taak kan zetten. Parallelle runs in één tabblad
- * (drie artikelen uit een magazine) hebben elk hun eigen id.
+ * Een taak heeft een `task`-id; stappen van dezelfde run dragen hetzelfde id.
+ * Parallelle runs in één tabblad (drie artikelen uit een magazine) hebben elk
+ * hun eigen id.
  */
 
 export type ActivityKind = 'taak' | 'stap';
@@ -58,21 +60,7 @@ export interface ActivityStamp {
   clientId?: string;
   naam?: string;
   task?: string;
-}
-
-export interface TaakRij {
-  task: string;
-  taak: string;
-  titel: string;
-  naam?: string;
-  status: ActivityStatus;
-  at: string;
-  ms?: number;
-  pages?: number;
-  usage?: ActivityUsage;
-  error?: string;
-  formaat?: string;
-  stappen: ActivityEvent[];
+  taak?: Taak | string;
 }
 
 const TAAK_TITEL: Record<string, string> = {
@@ -122,11 +110,10 @@ export function exportLabel(formaat: string | undefined): string {
   return EXPORT_LABEL[formaat] ?? formaat;
 }
 
-/** Eén regel die in het logboek bovenaan een gebeurtenis staat. */
+/** Korte kop: wat er gebeurde, zonder wie of hoe lang. */
 export function titelVan(event: Pick<ActivityEvent, 'kind' | 'taak' | 'titel' | 'formaat' | 'route' | 'page' | 'status'>): string {
   if (event.kind === 'stap') {
-    const waar = event.page != null ? `${routeLabel(event.route)} p. ${event.page}` : routeLabel(event.route);
-    return waar;
+    return event.page != null ? `${routeLabel(event.route)} p. ${event.page}` : routeLabel(event.route);
   }
   if (event.taak === 'inlog') return event.status === 'ok' ? 'Ingelogd' : 'Inloggen mislukt';
   if (event.taak === 'export') {
@@ -138,54 +125,21 @@ export function titelVan(event: Pick<ActivityEvent, 'kind' | 'taak' | 'titel' | 
 }
 
 /**
- * Taken met hun stappen eronder. Een start en een ok/fail met hetzelfde
- * `task`-id worden één rij; stappen zonder taak blijven los.
+ * Eén regel voor de Runtime Logs van Vercel. Bewust kort en vast van vorm,
+ * zodat je in het dashboard filtert op `src:vrhl` en de `msg` scant.
  */
-export function groepTaken(events: ActivityEvent[]): { taken: TaakRij[]; los: ActivityEvent[] } {
-  const byTask = new Map<string, ActivityEvent[]>();
-  const los: ActivityEvent[] = [];
-  for (const event of events) {
-    if (!event.task) {
-      los.push(event);
-      continue;
-    }
-    const list = byTask.get(event.task);
-    if (list) list.push(event);
-    else byTask.set(event.task, [event]);
+export function regelVan(event: ActivityEvent): string {
+  const status = event.status === 'start' ? 'bezig' : event.status === 'ok' ? 'ok' : 'mislukt';
+  const wie = event.naam || event.clientId || 'anoniem';
+  const parts = [status, titelVan(event), wie];
+  if (event.kind === 'taak' && event.pages != null) {
+    parts.push(event.pages === 1 ? '1 pagina' : `${event.pages} pagina's`);
   }
-
-  const taken: TaakRij[] = [];
-  for (const [task, list] of byTask) {
-    const taakEvents = list.filter((e) => e.kind === 'taak');
-    const stappen = list
-      .filter((e) => e.kind === 'stap')
-      .sort((a, b) => a.at.localeCompare(b.at));
-    if (!taakEvents.length) {
-      los.push(...list);
-      continue;
-    }
-    const ordered = [...taakEvents].sort((a, b) => a.at.localeCompare(b.at));
-    const first = ordered[0];
-    const last = [...ordered].reverse().find((e) => e.status !== 'start') ?? ordered[ordered.length - 1];
-    taken.push({
-      task,
-      taak: last.taak ?? first.taak ?? 'taak',
-      titel: titelVan(last.titel ? last : first),
-      naam: last.naam ?? first.naam,
-      status: last.status,
-      at: first.at,
-      ms: last.ms ?? (last.at !== first.at ? Date.parse(last.at) - Date.parse(first.at) : undefined),
-      pages: last.pages ?? first.pages,
-      usage: last.usage ?? first.usage,
-      error: last.error,
-      formaat: last.formaat ?? first.formaat,
-      stappen
-    });
-  }
-
-  taken.sort((a, b) => b.at.localeCompare(a.at));
-  los.sort((a, b) => b.at.localeCompare(a.at));
-  return { taken, los };
+  if (event.ms != null && event.status !== 'start') parts.push(duur(event.ms));
+  if (event.usage?.tokens != null) parts.push(`${Math.round(event.usage.tokens)} tok`);
+  if (event.usage?.cost != null) parts.push(bedrag(event.usage.cost, event.usage.currency));
+  if (event.error) parts.push(event.error);
+  return parts.join(' · ');
 }
 
 /** Alleen cijfers die een rekening of duur mogen zijn; geen tekst uit het artikel. */
@@ -203,4 +157,18 @@ export function usageOf(value: unknown): ActivityUsage | undefined {
 
 function num(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function duur(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds} s`;
+  const min = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `${min} min ${rest} s` : `${min} min`;
+}
+
+function bedrag(cost: number, currency?: string): string {
+  const n = cost.toFixed(2);
+  return currency && currency !== 'USD' ? `${n} ${currency}` : `$${n}`;
 }

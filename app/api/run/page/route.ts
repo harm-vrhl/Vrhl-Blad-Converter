@@ -1,7 +1,7 @@
 import { writeStructure } from '@/lib/agents/structure';
 import { timeLeft } from '@/lib/deadline';
 import { textOf } from '@/lib/pagemarkup';
-import { agentCtx, readRun, requireKeys, sse, usageOf } from '@/lib/server/run';
+import { agentCtx, requireKeys, stepSse, usageOf } from '@/lib/server/run';
 import type { ExtractedImage, IndexCheck } from '@/lib/types';
 import { tokens } from '@/lib/util';
 import { buildIndex, checkAgainstIndex } from '@/lib/wordindex';
@@ -41,8 +41,7 @@ interface Input {
  * tegen de woordindex. Streamt de tekst zoals hij geschreven wordt.
  */
 export async function POST(request: Request) {
-  const run = await readRun<Input>(request, maxDuration);
-  return sse(async (send) => {
+  return stepSse<Input>(request, async (run, send) => {
     requireKeys(run.provider);
     const { page, image, markdown = '', images = [], boxOnly = [], previousTail = '', context = '' } = run.input;
     const ctx = agentCtx(run, context);

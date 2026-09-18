@@ -6,7 +6,7 @@ import { strayLetters } from '../../spelling';
 import type { ExtractedImage, Frontmatter, ImageVerdict, OcrPage, PageAsset, RunEvent, RunUsage } from '../../types';
 import { errorMessage, EventQueue, pad2 } from '../../util';
 import { putData } from '../db';
-import { postJson, postStream, runForm } from '../post';
+import { postJson, postStream } from '../post';
 import type { RunContext } from './context';
 
 /** How far into the article the frontmatter agent keeps looking. */
@@ -26,7 +26,7 @@ export async function* readOpening(
   ctx: RunContext,
   ocrByPage: Map<number, OcrPage>
 ): AsyncGenerator<RunEvent, { frontmatter: Frontmatter; approved: ExtractedImage[]; boxed: ExtractedImage[] }, void> {
-  const { id, job, provider, chat, assets, once, files } = ctx;
+  const { id, job, provider, chat, assets, once, files, form } = ctx;
   const rejected = new Map<string, string>();
   const candidates: ExtractedImage[] = [];
   for (const image of job.images) {
@@ -51,7 +51,7 @@ export async function* readOpening(
           let final: { frontmatter: Frontmatter; usage: RunUsage } | null = null;
           await postStream<{ type: string; frontmatter: Frontmatter; usage: RunUsage }>(
             '/api/run/frontmatter',
-            runForm(
+            form(
               {
                 provider,
                 images: pages.map((a) => a.image),
@@ -93,7 +93,7 @@ export async function* readOpening(
               const asset = assets.find((a) => a.page === page);
               return postJson<{ verdicts: ImageVerdict[]; usage: RunUsage }>(
                 '/api/run/images',
-                runForm(
+                form(
                   {
                     provider,
                     // What the judging needs of the page is where it is and how big;

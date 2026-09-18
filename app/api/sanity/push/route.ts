@@ -3,7 +3,7 @@ import { sanityReady } from '@/lib/env';
 import { SanityError } from '@/lib/sanity/client';
 import { STUDIO } from '@/lib/studio';
 import { pushPackage } from '@/lib/sanity/push';
-import { readRun } from '@/lib/server/run';
+import { Refusal, stepJson } from '@/lib/server/run';
 import type { ExtractedImage } from '@/lib/types';
 import { errorMessage } from '@/lib/util';
 
@@ -31,23 +31,21 @@ interface Input {
  * `node canonical/sanity/validate.mjs documenten.json`.
  */
 export async function POST(request: Request) {
-  try {
-    const run = await readRun<Input>(request, maxDuration);
+  return stepJson<Input>(request, async (run) => {
     const { pakket, assets = {}, images = [], dryRun = false, bare = false } = run.input;
-    if (!pakket?.artikelen) return Response.json({ error: 'er zat geen pakket in het verzoek' }, { status: 400 });
+    if (!pakket?.artikelen) throw new Refusal('er zat geen pakket in het verzoek');
     if (!dryRun && !sanityReady()) {
-      return Response.json(
-        { error: `${STUDIO} is niet gekoppeld; vul NEXT_PUBLIC_SANITY_PROJECT_ID, NEXT_PUBLIC_SANITY_DATASET en SANITY_API_TOKEN in` },
-        { status: 409 }
+      throw new Refusal(
+        `${STUDIO} is niet gekoppeld; vul NEXT_PUBLIC_SANITY_PROJECT_ID, NEXT_PUBLIC_SANITY_DATASET en SANITY_API_TOKEN in`,
+        409
       );
     }
-    const result = await pushPackage(pakket, { images, assetIds: assets, dryRun });
-    return Response.json(bare ? result.documents : result);
-  } catch (err) {
-    const status = err instanceof SanityError && err.status >= 400 ? err.status : 500;
-    return Response.json(
-      { error: errorMessage(err), detail: err instanceof SanityError ? err.detail : undefined },
-      { status }
-    );
-  }
+    try {
+      const result = await pushPackage(pakket, { images, assetIds: assets, dryRun });
+      return bare ? result.documents : result;
+    } catch (err) {
+      const status = err instanceof SanityError && err.status >= 400 ? err.status : 500;
+      throw new Refusal(errorMessage(err), status, err instanceof SanityError ? err.detail : undefined);
+    }
+  }, maxDuration);
 }

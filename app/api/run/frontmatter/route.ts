@@ -1,5 +1,5 @@
 import { readFrontmatter } from '@/lib/agents/frontmaster';
-import { agentCtx, readRun, requireKeys, sse, usageOf } from '@/lib/server/run';
+import { agentCtx, requireKeys, stepSse, usageOf } from '@/lib/server/run';
 
 export const runtime = 'nodejs';
 export const maxDuration = 800;
@@ -14,8 +14,7 @@ interface Input {
 
 /** Kop, auteurs en intro van de opening. Streamt, zodat de kop verschijnt terwijl hij geschreven wordt. */
 export async function POST(request: Request) {
-  const run = await readRun<Input>(request, maxDuration);
-  return sse(async (send) => {
+  return stepSse<Input>(request, async (run, send) => {
     requireKeys(run.provider);
     const ctx = agentCtx(run);
     const frontmatter = await readFrontmatter(

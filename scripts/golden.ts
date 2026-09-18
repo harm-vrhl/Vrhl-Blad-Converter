@@ -17,6 +17,7 @@ import { livePreview } from '../components/article/preview';
 import { workflowSteps, type StatusLine } from '../components/article/steps';
 import { zoekInArtikel } from '../components/article/zoek';
 import { pageLabel, pageRange, summarizeSkipped } from '../components/magazine/labels';
+import { regelVan, routeLabel, titelVan, type ActivityEvent } from '../lib/activity';
 import { fromPackage, toPackage } from '../lib/canonical';
 import { compileArticle, frameTitlesAsHeadings } from '../lib/compile';
 import { controleer, oordeel, tekstOvereenkomst, woordTelling } from '../lib/controle';
@@ -213,6 +214,52 @@ function hash(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value) ?? 'undefined').digest('hex').slice(0, 16);
 }
 
+function activityLabels(): unknown {
+  const events: ActivityEvent[] = [
+    {
+      id: '1',
+      at: '2026-01-01T10:00:00.000Z',
+      kind: 'taak',
+      taak: 'artikel.omzetten',
+      status: 'start',
+      task: 't1',
+      titel: 'test.pdf',
+      pages: 6,
+      naam: 'Harm'
+    },
+    {
+      id: '2',
+      at: '2026-01-01T10:00:01.000Z',
+      kind: 'stap',
+      taak: 'artikel.omzetten',
+      status: 'ok',
+      task: 't1',
+      route: '/api/run/ocr',
+      page: 1,
+      ms: 800
+    },
+    {
+      id: '3',
+      at: '2026-01-01T10:04:00.000Z',
+      kind: 'taak',
+      taak: 'artikel.omzetten',
+      status: 'ok',
+      task: 't1',
+      titel: 'test.pdf',
+      pages: 6,
+      naam: 'Harm',
+      ms: 240000,
+      usage: { tokens: 69000, cost: 1.2, currency: 'USD', calls: 14 }
+    },
+    { id: '4', at: '2026-01-01T11:00:00.000Z', kind: 'taak', taak: 'inlog', status: 'ok', naam: 'Harm' }
+  ];
+  return {
+    titels: events.map(titelVan),
+    routes: ['/api/run/ocr', '/api/run/page', '/api/magazine/scan'].map(routeLabel),
+    regels: events.map(regelVan)
+  };
+}
+
 const update = process.argv.includes('--update');
 const current: Record<string, string> = {};
 const values: Record<string, unknown> = {};
@@ -226,6 +273,12 @@ for (const dir of readdirSync(JOBS).sort()) {
       values[key] = value;
     }
   }
+}
+
+{
+  const activity = activityLabels();
+  current['#/activity/labels'] = hash(activity);
+  values['#/activity/labels'] = activity;
 }
 
 if (update) {

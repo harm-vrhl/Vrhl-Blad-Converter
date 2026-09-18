@@ -19,6 +19,7 @@ import {
   type Totals,
 } from "@/lib/client/db";
 import { importPackage, isPakketBestand } from "@/lib/client/import";
+import { beginTaak, eindTaak } from "@/lib/client/activity";
 import type { RenderStep } from "@/lib/client/render";
 import { frameTitlesAsHeadings } from "@/lib/compile";
 import { boxOnly } from "@/lib/imagefilter";
@@ -107,6 +108,7 @@ export function useArticleRun({
     setPhase("importing");
     resetWorkspace();
     setTab("artikel");
+    const task = beginTaak({ taak: "blad.importeren", titel: file.name });
     try {
       const { job: landed, missing, extra } = await importPackage(file);
       const saved = (await getData<PageResult[]>(landed.id, "pages.json")) ?? [];
@@ -135,8 +137,10 @@ export function useArticleRun({
         );
       }
       if (hints.length) setNotice(hints.join(" "));
+      eindTaak(task, "ok", { taak: "blad.importeren", titel: file.name, pages: landed.pageCount, job: landed.id });
       return landed;
     } catch (err) {
+      eindTaak(task, "fail", { taak: "blad.importeren", titel: file.name, error: errorMessage(err) });
       setNotice(errorMessage(err));
       setPhase("idle");
       return null;

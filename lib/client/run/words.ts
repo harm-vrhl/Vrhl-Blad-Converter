@@ -4,7 +4,7 @@ import type { OcrPage, RunEvent, RunUsage } from '../../types';
 import { pad2 } from '../../util';
 import { buildIndex } from '../../wordindex';
 import { needFile, putData } from '../db';
-import { BODY_LIMIT, postJson, runForm } from '../post';
+import { BODY_LIMIT, postJson } from '../post';
 import type { RunContext } from './context';
 
 /** Een pagina-PDF groter dan dit gaat als render naar de OCR. */
@@ -20,7 +20,7 @@ export type OcrRead = { ocr: OcrPage; swaps: string[]; usage: RunUsage };
 export async function* readWords(
   ctx: RunContext
 ): AsyncGenerator<RunEvent, { read: OcrRead[]; ocrByPage: Map<number, OcrPage> }, void> {
-  const { id, ocrLane, assets, once } = ctx;
+  const { id, ocrLane, assets, once, form } = ctx;
   yield { type: 'status', run: 'woordindex', state: 'start', detail: "Mistral leest alle pagina's" };
   let pdf: Promise<import('pdf-lib').PDFDocument> | null = null;
   const pagePdf = async (page: number): Promise<Blob> => {
@@ -45,7 +45,7 @@ export async function* readWords(
           if (bron.size > PDF_ROOM) bron = await needFile(id, asset.image);
           return postJson<{ ocr: OcrPage; swaps: string[]; usage: RunUsage }>(
             '/api/run/ocr',
-            runForm({ page: asset.page, words: asset.words ?? [] }, { bron }, `Pagina ${asset.page} voor de OCR`)
+            form({ page: asset.page, words: asset.words ?? [] }, { bron }, `Pagina ${asset.page} voor de OCR`)
           );
         })
       )

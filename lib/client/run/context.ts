@@ -4,6 +4,7 @@ import type { PageAsset, RunUsage } from '../../types';
 import { needFile, type StoredJob } from '../db';
 import { limiter, type Limiter } from '../limiter';
 import { onceIn, type Once } from '../once';
+import { runForm } from '../post';
 
 interface Settings {
   concurrency: number;
@@ -61,9 +62,11 @@ export interface RunContext {
   /** Een stap die maar één keer betaald hoeft te worden: bewaard, en bij hervatten gelezen. */
   once: Once;
   files: (names: string[]) => Promise<Record<string, Blob>>;
+  /** Zelfde als `runForm`, met het task-id van deze run erbij. */
+  form: (input: object, files?: Record<string, Blob>, what?: string) => FormData;
 }
 
-export async function runContext(job: StoredJob, provider: 'openai' | 'mistral'): Promise<RunContext> {
+export async function runContext(job: StoredJob, provider: 'openai' | 'mistral', task?: string): Promise<RunContext> {
   const id = job.id;
   const { openai, mistral, ocr: ocrLane } = await lanesFor();
   const chat = provider === 'mistral' ? mistral : openai;
@@ -84,5 +87,8 @@ export async function runContext(job: StoredJob, provider: 'openai' | 'mistral')
   const files = async (names: string[]) =>
     Object.fromEntries(await Promise.all(names.map(async (name) => [name, await needFile(id, name)] as const)));
 
-  return { id, job, provider, chat, ocrLane, assets, bill, add, once, files };
+  const form = (input: object, files: Record<string, Blob> = {}, what = 'dit verzoek') =>
+    runForm(input, files, what, task);
+
+  return { id, job, provider, chat, ocrLane, assets, bill, add, once, files, form };
 }

@@ -256,6 +256,11 @@ minuten**, **10** verzoeken, sleutel **IP**, Then **Default (429)**, en daarna
 **Review Changes > Publish**. Ontbreekt de regel, dan remt elke machine alleen
 voor zichzelf en staat er bij elke poging een melding in de log.
 
+**Serverlog.** Elke taak (omzetten, magazine analyseren, export, inloggen) is
+een JSON-regel in de Runtime Logs van Vercel. Filter op `src:vrhl`. Geen
+artikeltekst en geen PDF: de server onthoudt die nog steeds niet. Bij inloggen
+kun je een naam invullen, zodat in de log staat wie het was.
+
 Op Vercel verder: alle sleutels uit `.env.example` als omgevingsvariabelen. Fluid
 compute staat standaard aan, en is nodig: de zware stappen mogen 800 seconden
 duren. Loopt een stap tegen die grens, dan stopt hij zelf net ervoor, en zegt de
@@ -403,6 +408,8 @@ lib/llm/            Mistral OCR, en één chatclient voor OpenAI en Mistral
                     (fetch, geen SDK, streaming, houdt zich aan Mistrals limieten)
 middleware.ts       het wachtwoordslot (APP_PASSWORD)
 lib/server/loginlimit.ts  hoe vaak het wachtwoord geprobeerd mag worden
+lib/activity.ts     titels van gebeurtenissen in de serverlog
+lib/server/activity.ts  JSON op stdout (`src:vrhl`)
 ```
 
 ## Output

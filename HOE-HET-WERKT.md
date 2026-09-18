@@ -232,6 +232,9 @@ verzoeken, een verzoek duurt hooguit 800 seconden en is hooguit 4,5 MB. Daarom:
   betaald. Geldt voor een artikel-run en voor de analyse van een magazine.
 - **Een wachtwoord** (`APP_PASSWORD`) schermt de app af, want elke stap gebruikt
   de sleutels van de redactie. Na tien pogingen in tien minuten moet je wachten.
+- **De serverlog** toont welke taken er lopen of liepen. Gebeurtenissen zijn kort
+  (wie, wat, duur, kosten), geen artikeltekst. Op Vercel: Runtime Logs, filter
+  `src:vrhl`.
 
 ## Modellen en kosten
 
@@ -256,6 +259,7 @@ zonder herstart.
 | Agents (LLM-runs) | `lib/agents/` |
 | Magazine-regels | `lib/magazine/stitch.ts` |
 | Wachtwoordslot | `middleware.ts`, `lib/auth.ts` |
+| Serverlog | `lib/activity.ts`, `lib/server/activity.ts` |
 | Uitlezen in de browser | `lib/client/` |
 | Mozaïeken | `lib/mosaic.ts` |
 | Compileren | `lib/compile.ts` |

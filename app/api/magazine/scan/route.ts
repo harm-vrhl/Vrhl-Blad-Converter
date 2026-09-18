@@ -1,6 +1,6 @@
 import { scanPage, type PageScanInput } from '@/lib/agents/pagescan';
 import { env, magazineModelFor } from '@/lib/env';
-import { agentCtx, json, readRun, Refusal, usageOf } from '@/lib/server/run';
+import { agentCtx, Refusal, stepJson, usageOf } from '@/lib/server/run';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -11,8 +11,7 @@ export const maxDuration = 300;
  * alleen het kijken.
  */
 export async function POST(request: Request) {
-  return json(async () => {
-    const run = await readRun<PageScanInput>(request, maxDuration);
+  return stepJson<PageScanInput>(request, async (run) => {
     // Geen OCR bij het in kaart brengen, dus alleen de sleutel van wie er kijkt.
     if (!(run.provider === 'mistral' ? env.mistralKey : env.openaiKey)) {
       throw new Refusal(`Ontbrekende sleutel: ${run.provider === 'mistral' ? 'MISTRAL_API_KEY' : 'OPENAI_API_KEY'}`);
@@ -21,5 +20,5 @@ export async function POST(request: Request) {
     const ctx = agentCtx(run, '', cheap);
     const scan = await scanPage(ctx, run.input);
     return { scan, model: cheap.model, usage: usageOf([ctx.ledger]) };
-  });
+  }, maxDuration);
 }

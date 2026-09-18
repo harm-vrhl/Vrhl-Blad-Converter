@@ -10,6 +10,7 @@ import { zip, type ZipEntry } from '../zip';
 import { getData, getFile, type StoredJob } from './db';
 import { BLAD_META, BLAD_OCR, BLAD_PAGES, BLAD_VERSIE, bladPaginaPad, type BladMeta, type BladPagina } from './blad';
 import { postJson, runForm } from './post';
+import { inTaak } from './activity';
 import { errorMessage } from '../util';
 
 /**
@@ -246,33 +247,39 @@ export async function pushToSanity(
   document: ArticleDocument,
   onProgress?: (done: number, total: number) => void
 ): Promise<PushResult> {
-  const pakket = await packageOf(job, document);
-  const files = packageFiles(pakket, job.images ?? []);
-  const assets: Record<string, string> = {};
-  const warnings: string[] = [];
+  return inTaak(
+    { taak: 'studio.versturen', titel: job.filename, pages: job.pageCount, job: job.id },
+    async (task) => {
+      const pakket = await packageOf(job, document);
+      const files = packageFiles(pakket, job.images ?? []);
+      const assets: Record<string, string> = {};
+      const warnings: string[] = [];
 
-  for (let i = 0; i < files.length; i++) {
-    onProgress?.(i, files.length);
-    const file = files[i];
-    const asset = (pakket.assets ?? []).find((a) => a.bestand === file.path);
-    const blob = await getFile(job.id, file.source);
-    if (!asset || !blob) continue;
-    try {
-      const result = await postJson<{ _id: string }>(
-        '/api/sanity/asset',
-        runForm(
-          { naam: file.path.replace(/^assets\//, ''), mimeType: asset.mimeType },
-          { bron: blob },
-          `Het beeld ${file.path}`
-        )
-      );
-      assets[asset.id] = result._id;
-    } catch (err) {
-      warnings.push(`asset '${asset.id}' kon niet worden geupload: ${errorMessage(err)}`);
+      for (let i = 0; i < files.length; i++) {
+        onProgress?.(i, files.length);
+        const file = files[i];
+        const asset = (pakket.assets ?? []).find((a) => a.bestand === file.path);
+        const blob = await getFile(job.id, file.source);
+        if (!asset || !blob) continue;
+        try {
+          const result = await postJson<{ _id: string }>(
+            '/api/sanity/asset',
+            runForm(
+              { naam: file.path.replace(/^assets\//, ''), mimeType: asset.mimeType },
+              { bron: blob },
+              `Het beeld ${file.path}`,
+              task
+            )
+          );
+          assets[asset.id] = result._id;
+        } catch (err) {
+          warnings.push(`asset '${asset.id}' kon niet worden geupload: ${errorMessage(err)}`);
+        }
+      }
+      onProgress?.(files.length, files.length);
+
+      const result = await postJson<PushResult>('/api/sanity/push', runForm({ pakket, assets }, {}, 'dit verzoek', task));
+      return { ...result, warnings: [...warnings, ...result.warnings] };
     }
-  }
-  onProgress?.(files.length, files.length);
-
-  const result = await postJson<PushResult>('/api/sanity/push', runForm({ pakket, assets }));
-  return { ...result, warnings: [...warnings, ...result.warnings] };
+  );
 }

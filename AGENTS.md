@@ -143,10 +143,12 @@ De app draait op Vercel. Elk verzoek kan op een andere machine landen, er is gee
 blijvende schijf, een verzoek duurt hooguit 800 seconden en is hooguit 4,5 MB.
 Daaruit volgen vaste regels:
 
-1. **Geen opslag op de server.** Alles staat in de browser, in IndexedDB
+1. **Geen opslag van artikelen op de server.** Alles staat in de browser, in IndexedDB
    (`lib/client/db.ts`): `jobs`, `magazines`, `files` (Blobs) en `data` (JSON),
    bestanden onder `<eigenaar>/<naam>` met de namen die de job ze geeft. Schrijf
-   nooit weer naar `fs` vanuit een route.
+   nooit weer naar `fs` vanuit een route. Korte gebeurtenissen (wie, welke taak,
+   duur, kosten) gaan als JSON naar stdout, voor de Runtime Logs van Vercel
+   (`src:vrhl`). Geen PDF, geen artikeltekst, en niets bewaren.
 2. **De browser regelt, de server doet één stap.** `lib/client/run.ts` en
    `lib/client/analyze.ts` bepalen volgorde en parallellisme en leveren dezelfde
    `RunEvent`s en `MagazineEvent`s als de oude server-pipeline. Een route onder
@@ -232,6 +234,10 @@ lib/client/exports.ts elke export (JSON, HTML, MDX, Word, PDF, .blad) uit hetzel
                       geprint via een iframe: geen PDF in code, want de lettertypen
                       in een PDF kennen ■, pijlen en andere schriften niet
 lib/server/run.ts     wat elke route deelt: verzoek lezen, kosten, streamen
+lib/activity.ts       titels van gebeurtenissen in de serverlog (staat in npm run golden)
+lib/client/activity.ts  wie (naam, browser-id) en welke taak; meesturen bij elk verzoek
+lib/server/activity.ts  JSON op stdout voor de Runtime Logs van Vercel (`src:vrhl`)
+app/api/activity/     taken uit de browser (POST); stappen schrijft de route zelf
 app/api/run/          check, ocr, frontmatter, images, page (leesvolgorde), styling (opmaak)
 app/api/magazine/     scan (per pagina), boundary (per overgang)
 app/api/sanity/       asset (één beeld), push (pakket als concept)

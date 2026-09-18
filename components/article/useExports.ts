@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import type { StoredJob } from "@/lib/client/db";
 import { exportFile, printPdf, pushToSanity, type ExportFormaat } from "@/lib/client/exports";
 import { toPackage } from "@/lib/canonical";
+import { inTaak } from "@/lib/client/activity";
 import { STUDIO, STUDIO_GELUKT } from "@/lib/studio";
 import type { ArticleDocument } from "@/lib/types";
 import { errorMessage } from "@/lib/util";
@@ -37,19 +38,19 @@ export function useExports({
       setExporting(formaat);
       setNotice(null);
       try {
-        // PDF is geen download maar het printvenster; zie printPdf.
-        if (formaat === "pdf") {
-          await printPdf(job, current);
-          return;
-        }
-        const { blob, name } = await exportFile(job, current, formaat);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = name;
-        a.click();
-        // Pas later vrijgeven: sommige browsers beginnen de download pas na deze tik.
-        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        await inTaak({ taak: "export", titel: job.filename, pages: job.pageCount, job: job.id, formaat }, async () => {
+          if (formaat === "pdf") {
+            await printPdf(job, current);
+            return;
+          }
+          const { blob, name } = await exportFile(job, current, formaat);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = name;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        });
       } catch (err) {
         setNotice(`De export kon niet worden gemaakt: ${errorMessage(err)}`);
       } finally {

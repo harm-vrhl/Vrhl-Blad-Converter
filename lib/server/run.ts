@@ -4,7 +4,7 @@ import { deadlineFor, LIMIT_HEADER, TimeUp, type Deadline } from '../deadline';
 import { env, missingKeys, PROVIDERS, type Provider } from '../env';
 import { aiCost, mistralLimit, newLedger, type Ledger, type ModelChoice } from '../llm/chat';
 import { ocrCost, type OcrLedger } from '../llm/mistral';
-import { noteStep, pageOf, parseActivity, stepSlot } from './activity';
+import { noteStep, pageOf, parseActivity, stepSlot, writeActivity } from './activity';
 import type { RunUsage } from '../types';
 import { errorMessage } from '../util';
 
@@ -70,6 +70,7 @@ export async function readRun<T>(request: Request, limit?: number): Promise<RunR
   if (slot) {
     slot.activity = activity;
     slot.page = pageOf(input);
+    slot.taak = activity?.taak;
   }
   return { input, provider, deadline, activity, image, file };
 }
@@ -78,7 +79,8 @@ export async function readRun<T>(request: Request, limit?: number): Promise<RunR
 export class Refusal extends Error {
   constructor(
     message: string,
-    readonly status = 400
+    readonly status = 400,
+    readonly detail?: string
   ) {
     super(message);
   }
@@ -113,12 +115,31 @@ export function usageOf(ledgers: Ledger[], ocr?: OcrLedger): RunUsage {
 
 /** Een JSON-route: het antwoord, of de fout als `{ error }` met een passende status. */
 export async function json(work: () => Promise<unknown>): Promise<Response> {
+  const started = Date.now();
   try {
-    return Response.json(await work());
+    const body = await work();
+    await noteStep(true, Date.now() - started, body);
+    return Response.json(body);
   } catch (err) {
+    await noteStep(false, Date.now() - started, undefined, err);
     const status = err instanceof Refusal ? err.status : err instanceof TimeUp ? 504 : 500;
-    return Response.json({ error: errorMessage(err) }, { status });
+    const error = errorMessage(err);
+    const detail = err instanceof Refusal ? err.detail : undefined;
+    return Response.json(detail ? { error, detail } : { error }, { status });
   }
+}
+
+/**
+ * JSON-route die de stap naar stdout schrijft. `readRun` vult wie het was;
+ * hier staat welke route het was.
+ */
+export function stepJson<T>(
+  request: Request,
+  work: (run: RunRequest<T>) => Promise<unknown>,
+  limit?: number
+): Promise<Response> {
+  const route = new URL(request.url).pathname;
+  return stepSlot.run({ route }, () => json(async () => work(await readRun<T>(request, limit))));
 }
 
 /**
@@ -154,4 +175,43 @@ export function sse(work: (send: (event: unknown) => void) => Promise<void>, lim
       ...(limit ? { [LIMIT_HEADER]: String(limit) } : {})
     }
   });
+}
+
+/** Streamende route die de stap naar stdout schrijft wanneer de stream stopt. */
+export async function stepSse<T>(
+  request: Request,
+  work: (run: RunRequest<T>, send: (event: unknown) => void) => Promise<void>,
+  limit?: number
+): Promise<Response> {
+  const route = new URL(request.url).pathname;
+  const started = Date.now();
+  let run: RunRequest<T>;
+  try {
+    run = await readRun<T>(request, limit);
+  } catch (err) {
+    await writeActivity({
+      kind: 'stap',
+      status: 'fail',
+      route,
+      error: errorMessage(err)
+    });
+    const status = err instanceof Refusal ? err.status : err instanceof TimeUp ? 504 : 500;
+    return Response.json({ error: errorMessage(err) }, { status });
+  }
+  const slot = { route, activity: run.activity, page: pageOf(run.input) };
+  return sse(async (send) => {
+    await stepSlot.run(slot, async () => {
+      let usageBody: unknown;
+      try {
+        await work(run, (event) => {
+          if (event && typeof event === 'object' && 'usage' in (event as object)) usageBody = event;
+          send(event);
+        });
+        await noteStep(true, Date.now() - started, usageBody);
+      } catch (err) {
+        await noteStep(false, Date.now() - started, undefined, err);
+        throw err;
+      }
+    });
+  }, limit);
 }

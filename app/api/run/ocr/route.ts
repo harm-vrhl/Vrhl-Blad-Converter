@@ -1,5 +1,5 @@
 import { newOcrLedger, ocrPage } from '@/lib/llm/mistral';
-import { json, readRun, Refusal, usageOf } from '@/lib/server/run';
+import { Refusal, stepJson, usageOf } from '@/lib/server/run';
 import { reconcile } from '@/lib/spelling';
 
 export const runtime = 'nodejs';
@@ -16,8 +16,7 @@ interface Input {
  * als render, en de spelling uit het bestand zet de accenten recht.
  */
 export async function POST(request: Request) {
-  return json(async () => {
-    const run = await readRun<Input>(request, maxDuration);
+  return stepJson<Input>(request, async (run) => {
     const page = Number(run.input.page);
     const source = await run.file('bron');
     if (!Number.isInteger(page) || page < 1 || !source) throw new Refusal('pagina of bestand ontbreekt');
@@ -33,5 +32,5 @@ export async function POST(request: Request) {
       swaps: swaps.map((swap) => `p${page}: ${swap.from} → ${swap.to}${swap.count > 1 ? ` (${swap.count}×)` : ''}`),
       usage: usageOf([], ledger)
     };
-  });
+  }, maxDuration);
 }

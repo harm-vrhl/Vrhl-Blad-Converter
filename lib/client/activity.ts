@@ -6,7 +6,11 @@ import { newId } from './db';
 const CLIENT_KEY = 'vrhl-client';
 const NAAM_KEY = 'vrhl-naam';
 
-/** Stabiel per browser, zodat het logboek sessies uit elkaar houdt. */
+/** Welke taak bij welk task-id hoort, zolang die run loopt. Parallelle runs
+ *  (drie artikelen uit een magazine) hebben elk hun eigen id. */
+const taken = new Map<string, Taak>();
+
+/** Stabiel per browser, zodat de serverlog sessies uit elkaar houdt. */
 export function clientId(): string {
   try {
     const existing = window.localStorage.getItem(CLIENT_KEY);
@@ -42,7 +46,8 @@ export function activityStamp(task?: string): ActivityStamp {
   return {
     clientId: clientId(),
     naam: naam() || undefined,
-    task: task || undefined
+    task: task || undefined,
+    taak: task ? taken.get(task) : undefined
   };
 }
 
@@ -54,6 +59,7 @@ export function beginTaak(input: {
   formaat?: string;
 }): string {
   const task = newId();
+  taken.set(task, input.taak);
   void meld({
     kind: 'taak',
     status: 'start',
@@ -94,6 +100,7 @@ export function eindTaak(
     ms: extra.ms,
     usage: extra.usage
   });
+  taken.delete(task);
 }
 
 /** Een taak om een gewone async-functie heen; generators gebruiken begin/eind. */

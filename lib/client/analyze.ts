@@ -21,6 +21,7 @@ import { deleteData, loadMagazine, needFile, putData, saveMagazine } from './db'
 import { limiter, type Limiter } from './limiter';
 import { onceIn } from './once';
 import { postJson, runForm } from './post';
+import { beginTaak, eindTaak } from './activity';
 
 /**
  * A whole magazine to a list of articles, from the browser. Separate from the
@@ -89,18 +90,38 @@ export async function* analyzeMagazine(
   magazine.status = 'running';
   magazine.error = null;
   await saveMagazine(magazine);
+  const task = beginTaak({
+    taak: 'magazine.analyseren',
+    titel: magazine.filename,
+    pages: magazine.pageCount,
+    job: magazine.id
+  });
   try {
-    yield* analyze(magazine, provider);
+    yield* analyze(magazine, provider, task);
+    eindTaak(task, 'ok', {
+      taak: 'magazine.analyseren',
+      titel: magazine.filename,
+      pages: magazine.pageCount,
+      job: magazine.id,
+      error: magazine.error
+    });
   } catch (err) {
     const message = errorMessage(err);
     magazine.status = 'error';
     magazine.error = message;
     await saveMagazine(magazine).catch(() => undefined);
+    eindTaak(task, 'fail', {
+      taak: 'magazine.analyseren',
+      titel: magazine.filename,
+      pages: magazine.pageCount,
+      job: magazine.id,
+      error: message
+    });
     yield { type: 'status', run: 'fout', state: 'fail', detail: message };
   }
 }
 
-async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): AsyncGenerator<MagazineEvent, void, void> {
+async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral', task: string): AsyncGenerator<MagazineEvent, void, void> {
   const started = Date.now();
   const { openai, mistral } = await lanesFor();
   const lane = provider === 'mistral' ? mistral : openai;
@@ -142,7 +163,7 @@ async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): Asy
             const names = [input.previousImage, input.image, input.nextImage].filter((n): n is string => !!n);
             return postJson<{ scan: PageScan; usage: RunUsage }>(
               '/api/magazine/scan',
-              runForm({ provider, ...input }, await files(names), `Pagina ${page.pdf} met zijn buren`)
+              runForm({ provider, ...input }, await files(names), `Pagina ${page.pdf} met zijn buren`, task)
             );
           })
         );
@@ -223,7 +244,7 @@ async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): Asy
             answer: { verdict: ContentVerdict; belonging: string[]; reason: string };
             model: string;
             usage: RunUsage;
-          }>('/api/magazine/content', runForm({ provider, strong, ...input }, await files([input.image]), 'De inhoudscontrole'))
+          }>('/api/magazine/content', runForm({ provider, strong, ...input }, await files([input.image]), 'De inhoudscontrole', task))
         )
       );
 
@@ -314,7 +335,7 @@ async function* analyze(magazine: Magazine, provider: 'openai' | 'mistral'): Asy
             answer: { verdict: BoundaryVerdict; continuesOn: string | null; reason: string };
             model: string;
             usage: RunUsage;
-          }>('/api/magazine/boundary', runForm({ provider, strong, ...input }, await files(names), 'De grenscontrole'));
+          }>('/api/magazine/boundary', runForm({ provider, strong, ...input }, await files(names), 'De grenscontrole', task));
         })
       );
 
