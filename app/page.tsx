@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, RotateCcw } from "lucide-react";
 import { ArticleView } from "@/components/ArticleView";
 import { AppHeader } from "@/components/article/AppHeader";
@@ -153,6 +153,7 @@ export default function Home() {
   const idle = !job && phase !== "rendering" && phase !== "importing";
   const workspace = !showMagazine && !(idle || ((phase === "rendering" || phase === "importing") && !job));
   const noticeOk = !!notice && notice.startsWith(STUDIO_GELUKT);
+  const tabVoorTour = useRef<Tab | null>(null);
 
   return (
     <div className="flex h-svh flex-col overflow-hidden">
@@ -178,8 +179,17 @@ export default function Home() {
         uitleg={
           <UitlegKnop
             auto={idle && earlier !== null && earlier.length === 0}
+            bewaarWeergave={() => {
+              tabVoorTour.current = tab;
+            }}
+            herstelWeergave={() => {
+              if (tabVoorTour.current != null) {
+                setTab(tabVoorTour.current);
+                tabVoorTour.current = null;
+              }
+            }}
             openSidebar={() => setSidebarOpen(true)}
-            naarArtikel={() => setTab("artikel")}
+            voorArtikelStap={() => setTab("artikel")}
           />
         }
         zoek={

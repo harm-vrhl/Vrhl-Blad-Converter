@@ -3,8 +3,12 @@ import { driver, type DriveStep, type Driver, type Side } from "driver.js";
 const KEY = "vrhl-uitleg-gezien";
 
 export type TourCtx = {
+  /** Onthoudt het tabblad; na afloop zet de tour het terug. */
+  bewaarWeergave?: () => void;
+  herstelWeergave?: () => void;
   openSidebar?: () => void;
-  naarArtikel?: () => void;
+  /** Alleen vlak vóór de stap over het Artikel-tabblad. */
+  voorArtikelStap?: () => void;
 };
 
 let actief: Driver | null = null;
@@ -39,8 +43,8 @@ export function startTour(ctx?: TourCtx): void {
   stopTour();
   const scherm = kiesScherm();
   if (scherm === "artikel") {
+    ctx?.bewaarWeergave?.();
     ctx?.openSidebar?.();
-    ctx?.naarArtikel?.();
   }
   const gaan = () => {
     const weinigBeweging = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -62,8 +66,9 @@ export function startTour(ctx?: TourCtx): void {
       prevBtnText: "Vorige",
       doneBtnText: "Klaar",
       popoverClass: "uitleg-popover",
-      steps: stappen(scherm),
+      steps: stappen(scherm, ctx),
       onDestroyed: () => {
+        ctx?.herstelWeergave?.();
         markeerUitlegGezien();
         actief = null;
       },
@@ -88,8 +93,8 @@ function inBeeld(selector: string): boolean {
   return !el.closest("[hidden]");
 }
 
-function stappen(scherm: "start" | "artikel" | "magazine"): DriveStep[] {
-  if (scherm === "artikel") return aanwezig(artikel);
+function stappen(scherm: "start" | "artikel" | "magazine", ctx?: TourCtx): DriveStep[] {
+  if (scherm === "artikel") return aanwezig(artikelStappen(ctx));
   if (scherm === "magazine") return aanwezig(magazine);
   return aanwezig(start);
 }
@@ -98,19 +103,35 @@ function stappen(scherm: "start" | "artikel" | "magazine"): DriveStep[] {
 function aanwezig(bron: DriveStep[]): DriveStep[] {
   return bron.filter((stap) => {
     if (!stap.element || typeof stap.element !== "string") return true;
+    if (artikelStap(stap)) return true;
     return inBeeld(stap.element);
   });
+}
+
+function artikelStap(stap: DriveStep): boolean {
+  return typeof stap.element === "string" && stap.element.includes('data-tour="artikel"');
 }
 
 function overlay(title: string, description: string): DriveStep {
   return { popover: { title, description } };
 }
 
-function plek(id: string, title: string, description: string, side?: Side): DriveStep {
-  return {
+function plek(
+  id: string,
+  title: string,
+  description: string,
+  side?: Side,
+  ctx?: TourCtx,
+): DriveStep {
+  const step: DriveStep = {
     element: `[data-tour="${id}"]`,
     popover: { title, description, ...(side ? { side } : {}) },
   };
+  if (id === "artikel") {
+    step.waitForElement = 2000;
+    step.onHighlightStarted = () => ctx?.voorArtikelStap?.();
+  }
+  return step;
 }
 
 const start: DriveStep[] = [
@@ -154,58 +175,62 @@ const start: DriveStep[] = [
   ),
 ];
 
-const artikel: DriveStep[] = [
-  overlay(
-    "Het werkscherm",
-    "Hier zet je het artikel om en kijk je het na. Links zie je hoe ver de app is. Bovenaan staan de tabbladen en de knoppen. In het midden staat het artikel zelf.",
-  ),
-  plek(
-    "omzetten",
-    "Omzetten",
-    "Klik hier om te beginnen. Stopt het halverwege, bijvoorbeeld door een storing? Klik dan op <b>Verder waar het stopte</b>. Wat al klaar was, hoeft niet opnieuw.",
-    "bottom",
-  ),
-  plek(
-    "workflow",
-    "Hoe ver is de app?",
-    "Hier zie je stap voor stap wat de app doet. Eerst leest hij de tekst van de pagina's, dan zoekt hij de kop en de foto's, en daarna zet hij alles in de goede volgorde. De tekst verschijnt al terwijl de app bezig is.",
-    "right",
-  ),
-  plek(
-    "tabs",
-    "Vier tabbladen",
-    "<b>Pagina's</b>: de originele PDF.<br><b>Artikel</b>: de tekst zoals hij online komt. Hier verbeter je fouten.<br><b>JSON</b>: de technische versie. Die heb je meestal niet nodig.<br><b>Controle</b>: een lijst met dingen om na te kijken. Het getal laat zien hoeveel er nog openstaan.",
-  ),
-  plek(
-    "artikel",
-    "Tekst verbeteren",
-    "Klik in de tekst en typ, net als in Word. Vet is ⌘B, cursief ⌘I, onderstrepen ⌘U. Een stuk tekst weghalen? Maak het helemaal leeg. Staat een stuk op de verkeerde plek? Sleep het naar de goede plek.",
-  ),
-  plek(
-    "zoek",
-    "Zoeken",
-    "Typ een woord om het in het artikel te vinden. Met ⌘F kom je hier ook. Druk op Enter om naar de volgende plek te gaan waar het woord staat.",
-    "bottom",
-  ),
-  plek(
-    "export",
-    "Downloaden",
-    "Download het artikel als bestand, bijvoorbeeld als Word of PDF. Kies <b>Blad</b> om je werk te bewaren. Dat bestand kun je later weer openen om verder te gaan.",
-    "bottom",
-  ),
-  plek(
-    "studio",
-    "Naar Vrhl-Blad-Studio",
-    "Als het artikel klaar is, klik je hier. Het komt dan als concept in Vrhl-Blad-Studio. Het staat nog niet online. Staat er in <b>Controle</b> nog iets open? Dan vraagt de app eerst of je dat wilt nakijken.",
-    "bottom",
-  ),
-  plek(
-    "uitleg",
-    "Deze uitleg opnieuw zien",
-    "Klik op <b>Uitleg</b> als je iets kwijt bent. Je krijgt dan de uitleg die bij het scherm hoort waar je op dat moment bent.",
-    "bottom",
-  ),
-];
+function artikelStappen(ctx?: TourCtx): DriveStep[] {
+  return [
+    overlay(
+      "Het werkscherm",
+      "Hier zet je het artikel om en kijk je het na. Links zie je hoe ver de app is. Bovenaan staan de tabbladen en de knoppen. In het midden staat het artikel zelf.",
+    ),
+    plek(
+      "omzetten",
+      "Omzetten",
+      "Klik hier om te beginnen. Stopt het halverwege, bijvoorbeeld door een storing? Klik dan op <b>Verder waar het stopte</b>. Wat al klaar was, hoeft niet opnieuw.",
+      "bottom",
+    ),
+    plek(
+      "workflow",
+      "Hoe ver is de app?",
+      "Hier zie je stap voor stap wat de app doet. Eerst leest hij de tekst van de pagina's, dan zoekt hij de kop en de foto's, en daarna zet hij alles in de goede volgorde. De tekst verschijnt al terwijl de app bezig is.",
+      "right",
+    ),
+    plek(
+      "tabs",
+      "Vier tabbladen",
+      "<b>Pagina's</b>: de originele PDF.<br><b>Artikel</b>: de tekst zoals hij online komt. Hier verbeter je fouten.<br><b>JSON</b>: de technische versie. Die heb je meestal niet nodig.<br><b>Controle</b>: een lijst met dingen om na te kijken. Het getal laat zien hoeveel er nog openstaan.",
+    ),
+    plek(
+      "artikel",
+      "Tekst verbeteren",
+      "Klik in de tekst en typ, net als in Word. Vet is ⌘B, cursief ⌘I, onderstrepen ⌘U. Een stuk tekst weghalen? Maak het helemaal leeg. Staat een stuk op de verkeerde plek? Sleep het naar de goede plek.",
+      undefined,
+      ctx,
+    ),
+    plek(
+      "zoek",
+      "Zoeken",
+      "Typ een woord om het in het artikel te vinden. Met ⌘F kom je hier ook. Druk op Enter om naar de volgende plek te gaan waar het woord staat.",
+      "bottom",
+    ),
+    plek(
+      "export",
+      "Downloaden",
+      "Download het artikel als bestand, bijvoorbeeld als Word of PDF. Kies <b>Blad</b> om je werk te bewaren. Dat bestand kun je later weer openen om verder te gaan.",
+      "bottom",
+    ),
+    plek(
+      "studio",
+      "Naar Vrhl-Blad-Studio",
+      "Als het artikel klaar is, klik je hier. Het komt dan als concept in Vrhl-Blad-Studio. Het staat nog niet online. Staat er in <b>Controle</b> nog iets open? Dan vraagt de app eerst of je dat wilt nakijken.",
+      "bottom",
+    ),
+    plek(
+      "uitleg",
+      "Deze uitleg opnieuw zien",
+      "Klik op <b>Uitleg</b> als je iets kwijt bent. Je krijgt dan de uitleg die bij het scherm hoort waar je op dat moment bent.",
+      "bottom",
+    ),
+  ];
+}
 
 const magazine: DriveStep[] = [
   overlay(

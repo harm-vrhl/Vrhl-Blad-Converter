@@ -13,15 +13,19 @@ import "./tour.css";
  */
 export function UitlegKnop({
   auto,
+  bewaarWeergave,
+  herstelWeergave,
   openSidebar,
-  naarArtikel,
+  voorArtikelStap,
 }: {
   auto?: boolean;
+  bewaarWeergave?: () => void;
+  herstelWeergave?: () => void;
   openSidebar?: () => void;
-  naarArtikel?: () => void;
+  voorArtikelStap?: () => void;
 }) {
-  const ctx = useRef<TourCtx>({ openSidebar, naarArtikel });
-  ctx.current = { openSidebar, naarArtikel };
+  const ctx = useRef<TourCtx>({ bewaarWeergave, herstelWeergave, openSidebar, voorArtikelStap });
+  ctx.current = { bewaarWeergave, herstelWeergave, openSidebar, voorArtikelStap };
 
   useEffect(() => {
     if (!auto || uitlegGezien()) return;
