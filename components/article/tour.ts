@@ -1,4 +1,4 @@
-import { driver, type DriveStep, type Driver, type Side } from "driver.js";
+import { driver, type DriveStep, type Driver, type DriverHook, type Side } from "driver.js";
 
 const KEY = "vrhl-uitleg-gezien";
 
@@ -56,9 +56,10 @@ export function startTour(ctx?: TourCtx): void {
       stagePadding: 8,
       stageRadius: 12,
       popoverOffset: 12,
-      smoothScroll: true,
+      smoothScroll: false,
       allowClose: true,
       allowScroll: true,
+      skipMissingElement: true,
       disableActiveInteraction: true,
       showProgress: true,
       progressText: "{{current}} van {{total}}",
@@ -76,8 +77,17 @@ export function startTour(ctx?: TourCtx): void {
     actief = instance;
     instance.drive();
   };
-  if (scherm === "artikel") window.setTimeout(gaan, 320);
+  // Zijbalk-animatie duurt 300 ms; driver moet stap 3 niet op een dicht paneel zetten.
+  if (scherm === "artikel") window.setTimeout(gaan, 450);
   else gaan();
+}
+
+/** Na tab- of zijbalk-wissel even wachten, dan driver opnieuw positioneren. */
+function naLayout(ms: number, werk?: () => void): DriverHook {
+  return (_element, _step, { driver }) => {
+    werk?.();
+    window.setTimeout(() => driver.refresh(), ms);
+  };
 }
 
 function kiesScherm(): "start" | "artikel" | "magazine" {
@@ -129,7 +139,10 @@ function plek(
   };
   if (id === "artikel") {
     step.waitForElement = 2000;
-    step.onHighlightStarted = () => ctx?.voorArtikelStap?.();
+    step.onHighlightStarted = naLayout(80, () => ctx?.voorArtikelStap?.());
+  }
+  if (id === "workflow") {
+    step.onHighlightStarted = naLayout(360, () => ctx?.openSidebar?.());
   }
   return step;
 }

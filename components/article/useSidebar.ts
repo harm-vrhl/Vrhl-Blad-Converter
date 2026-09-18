@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { tourBezig } from "@/components/article/tour";
 
 const SIDEBAR_KEY = "vrhl.zijbalk";
 
@@ -38,6 +39,7 @@ export function useSidebar() {
   }, []);
 
   const toggleSidebar = useCallback(() => {
+    if (tourBezig()) return;
     setSidebarOpen((open) => {
       if (!narrow) {
         try {
@@ -54,6 +56,7 @@ export function useSidebar() {
   useEffect(() => {
     if (!narrow || !sidebarOpen) return;
     const onKey = (event: KeyboardEvent) => {
+      if (tourBezig()) return;
       if (event.key === "Escape") setSidebarOpen(false);
     };
     window.addEventListener("keydown", onKey);

@@ -6,6 +6,7 @@ import type { Phase } from "@/components/article/useArticleRun";
 import { Workflow, type WorkflowStep } from "@/components/Workflow";
 import type { StoredJob, Totals } from "@/lib/client/db";
 import type { Frontmatter, ImageVerdict } from "@/lib/types";
+import { tourBezig } from "@/components/article/tour";
 
 /** De Workflow als eiland links van het werkgebied, met de ruimte die het inneemt. */
 export function WorkflowSidebar({
@@ -54,7 +55,10 @@ export function WorkflowSidebar({
           type="button"
           aria-label="Zijbalk sluiten"
           className="absolute inset-0 z-20 cursor-default bg-black/10 backdrop-blur-[1px]"
-          onClick={() => setSidebarOpen(false)}
+          onClick={() => {
+            if (tourBezig()) return;
+            setSidebarOpen(false);
+          }}
         />
       ) : null}
       <aside
